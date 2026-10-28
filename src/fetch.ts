@@ -1,4 +1,4 @@
-import type { z } from 'zod';
+import type { z } from 'zod/v4';
 import type { Source } from './contracts.js';
 export type FetchOptions = {
   timeoutMs?: number;
@@ -19,6 +19,7 @@ export async function fetchApprovedJson<T>(
     !source.redistribution_approved ||
     !source.license_name ||
     !source.license_url ||
+    !source.attribution ||
     !source.last_verified_at ||
     !source.schema_fixture
   )

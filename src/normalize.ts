@@ -7,7 +7,22 @@ export function parseNumber(input: unknown): number | null {
   }
   if (typeof input !== 'string') throw new Error('Invalid number type');
   const value = input.trim();
-  if (!value || ['--', '---', '—', 'N/A', '不適用'].includes(value))
+  if (
+    !value ||
+    [
+      '-',
+      '--',
+      '---',
+      '----',
+      '—',
+      'N/A',
+      '不適用',
+      'X',
+      '除權',
+      '除息',
+      '除權息',
+    ].includes(value)
+  )
     return null;
   if (!/^[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?$/.test(value))
     throw new Error(`Invalid numeric text: ${value}`);
@@ -39,7 +54,9 @@ export function toShares(
   return result;
 }
 export function parseDate(input: string): string {
-  const parts = input.trim().split(/[/-]/);
+  const raw = input.trim();
+  const compact = /^(\d{3}|\d{4})(\d{2})(\d{2})$/.exec(raw);
+  const parts = compact ? compact.slice(1) : raw.split(/[/-]/);
   if (parts.length !== 3 || !parts.every((p) => /^\d+$/.test(p)))
     throw new Error('Invalid date');
   let [year, month, day] = parts.map(Number);

@@ -5,11 +5,13 @@ sources:
     category: daily_price
     market: TWSE
     frequency: trading_day
-    license_name: null
-    license_url: null
+    license_name: 政府資料開放授權條款－第1版
+    license_url: https://data.gov.tw/license
+    license_dataset_url: https://data.gov.tw/dataset/11549
     redistribution_approved: false
-    attribution: null
+    attribution: 金融監督管理委員會證券期貨局（臺灣證券交易所），2026，個股日成交資訊，政府資料開放授權條款－第1版
     schema_fixture: null
+    license_verified_at: '2026-10-28'
     last_verified_at: null
   - id: tpex.daily_price
     provider: tpex
@@ -17,11 +19,13 @@ sources:
     category: daily_price
     market: TPEX
     frequency: trading_day
-    license_name: null
-    license_url: null
+    license_name: 政府資料開放授權條款－第1版
+    license_url: https://data.gov.tw/license
+    license_dataset_url: https://data.gov.tw/dataset/11370
     redistribution_approved: false
-    attribution: null
+    attribution: 金融監督管理委員會證券期貨局（證券櫃檯買賣中心），2026，上櫃股票行情，政府資料開放授權條款－第1版
     schema_fixture: null
+    license_verified_at: '2026-10-28'
     last_verified_at: null
   - id: tdcc.distribution
     provider: tdcc
@@ -29,9 +33,11 @@ sources:
     category: ownership
     market: BOTH
     frequency: weekly
-    license_name: null
-    license_url: null
+    license_name: 政府資料開放授權條款－第1版
+    license_url: https://data.gov.tw/license
+    license_dataset_url: https://data.gov.tw/dataset/11452
     redistribution_approved: false
-    attribution: null
+    attribution: 金融監督管理委員會證券期貨局（臺灣集中保管結算所），2026，集保戶股權分散表，政府資料開放授權條款－第1版
     schema_fixture: null
+    license_verified_at: '2026-10-28'
     last_verified_at: null
