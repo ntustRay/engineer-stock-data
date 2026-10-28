@@ -1,0 +1,29 @@
+name: Publish data
+on:
+  # Enable the 19:10 / 22:10 Asia/Taipei schedules after approved sources and ingestion are ready.
+  # schedule:
+  #   - cron: '10 11 * * 1-5'
+  #   - cron: '10 14 * * 1-5'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: stock-data-publish
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bun test
+      - name: Refuse publication until licensed providers and normalization are connected
+        run: |
+          echo 'Production ingestion is not configured. No snapshot will be published.'
+          exit 1

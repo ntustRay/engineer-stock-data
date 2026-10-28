@@ -1,0 +1,78 @@
+{
+  "snapshotId": "2026-10-27T12:00:00.000Z",
+  "asOfDate": "2026-10-27",
+  "stocks": [
+    {
+      "security": {
+        "securityId": "TWSE:9001",
+        "symbol": "9001",
+        "market": "TWSE",
+        "name": "測試電子",
+        "industry": "測試產業",
+        "status": "active"
+      },
+      "daily": [
+        {
+          "date": "2026-10-27",
+          "open": 100,
+          "high": 105,
+          "low": 99,
+          "close": 103,
+          "volumeShares": 150000,
+          "turnoverTwd": 15450000,
+          "change": 3,
+          "changePct": 3,
+          "institutionalNetShares": {
+            "foreign": 20000,
+            "investmentTrust": null,
+            "dealer": null
+          }
+        }
+      ],
+      "latest": {
+        "per": 12,
+        "pbr": 1.2,
+        "dividendYieldPct": 3,
+        "epsTtm": 8,
+        "revenueYoyPct": null,
+        "roePct": 15
+      }
+    },
+    {
+      "security": {
+        "securityId": "TPEX:9002",
+        "symbol": "9002",
+        "market": "TPEX",
+        "name": "測試科技",
+        "industry": "測試產業",
+        "status": "active"
+      },
+      "daily": [
+        {
+          "date": "2026-10-27",
+          "open": 50,
+          "high": 52,
+          "low": 49,
+          "close": 51,
+          "volumeShares": 50000,
+          "turnoverTwd": 2550000,
+          "change": 1,
+          "changePct": 2,
+          "institutionalNetShares": {
+            "foreign": null,
+            "investmentTrust": null,
+            "dealer": null
+          }
+        }
+      ],
+      "latest": {
+        "per": null,
+        "pbr": null,
+        "dividendYieldPct": null,
+        "epsTtm": null,
+        "revenueYoyPct": null,
+        "roePct": null
+      }
+    }
+  ]
+}

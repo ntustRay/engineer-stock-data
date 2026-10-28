@@ -1,0 +1,37 @@
+sources:
+  - id: twse.daily_price
+    provider: twse
+    url: https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL
+    category: daily_price
+    market: TWSE
+    frequency: trading_day
+    license_name: null
+    license_url: null
+    redistribution_approved: false
+    attribution: null
+    schema_fixture: null
+    last_verified_at: null
+  - id: tpex.daily_price
+    provider: tpex
+    url: https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes
+    category: daily_price
+    market: TPEX
+    frequency: trading_day
+    license_name: null
+    license_url: null
+    redistribution_approved: false
+    attribution: null
+    schema_fixture: null
+    last_verified_at: null
+  - id: tdcc.distribution
+    provider: tdcc
+    url: https://openapi.tdcc.com.tw/v1/opendata/1-5
+    category: ownership
+    market: BOTH
+    frequency: weekly
+    license_name: null
+    license_url: null
+    redistribution_approved: false
+    attribution: null
+    schema_fixture: null
+    last_verified_at: null

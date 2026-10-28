@@ -1,0 +1,25 @@
+{
+  "name": "engineer-stock-data",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "yaml": "2.9.1",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.3",
+    "@types/bun": "1.4.4",
+    "@types/node": "26.6.5",
+    "bun": "1.4.4",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "fixture": "bun src/cli.ts fixture",
+    "build": "bun src/cli.ts build",
+    "publish": "bun src/cli.ts publish",
+    "check": "biome check src tests"
+  }
+}
