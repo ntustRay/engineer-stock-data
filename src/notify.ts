@@ -6,7 +6,10 @@ export async function notifyWebCache(args: {
   secret: string;
   commitSha: string;
   now?: number;
-  fetchImpl?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+  fetchImpl?: (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ) => Promise<Response>;
 }): Promise<boolean> {
   const url = new URL(args.url);
   if (url.protocol !== 'https:' || url.username || url.password)
