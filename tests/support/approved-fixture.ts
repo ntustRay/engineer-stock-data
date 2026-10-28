@@ -5,7 +5,7 @@ import { createSnapshot } from '../../src/snapshot.js';
 /** Fictional source registry and records for local unit tests only. */
 export function approvedFixture(snapshotId = '2026-10-27T12:00:00.000Z') {
   const registry: Source[] = (['TWSE', 'TPEX'] as const).flatMap((market) =>
-    ['daily_price', 'securities'].map((category) => ({
+    ['daily_price', 'securities', 'trading_calendar'].map((category) => ({
       id: `test.${market}.${category}`,
       provider: market === 'TWSE' ? 'twse' : 'tpex',
       url: `https://${market === 'TWSE' ? 'openapi.twse.com.tw' : 'www.tpex.org.tw'}/test/${category}`,

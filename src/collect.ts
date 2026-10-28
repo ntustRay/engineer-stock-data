@@ -8,6 +8,7 @@ import {
   twseQuotesSchema,
 } from './providers/quotes.js';
 import { assertPublishableSources } from './snapshot.js';
+import { isJointTradingDay, type MarketCalendar } from './calendar.js';
 
 type Assembly = Parameters<typeof assembleQuoteSnapshot>[0];
 
@@ -21,9 +22,10 @@ export async function collectQuoteSnapshot(args: {
   universe: Assembly['universe'];
   exceptions: Assembly['exceptions'];
   previous: SnapshotInput | null;
+  calendars: MarketCalendar[];
   registry: Source[];
   fetchOptions?: FetchOptions;
-}): Promise<SnapshotInput> {
+}): Promise<SnapshotInput | null> {
   const byId = new Map(args.registry.map((source) => [source.id, source]));
   if (byId.size !== args.registry.length)
     throw new Error('Duplicate source registry id');
@@ -39,6 +41,16 @@ export async function collectQuoteSnapshot(args: {
   const tpex = sourceFor('TPEX');
   assertPublishableSources([twse, tpex]);
   const usedIds = new Set([twse.id, tpex.id]);
+  for (const calendar of args.calendars) {
+    const source = byId.get(calendar.source);
+    if (
+      !source ||
+      source.category !== 'trading_calendar' ||
+      (source.market !== calendar.market && source.market !== 'BOTH')
+    )
+      throw new Error(`Invalid calendar source: ${calendar.source}`);
+    usedIds.add(source.id);
+  }
   for (const item of args.universe) {
     const source = byId.get(item.source);
     if (
@@ -77,6 +89,7 @@ export async function collectQuoteSnapshot(args: {
       lastVerifiedAt: source.last_verified_at,
     };
   });
+  if (!isJointTradingDay(args.calendars, args.targetDate)) return null;
   const [twseRows, tpexRows] = await Promise.all([
     fetchApprovedJson(twse, twseQuotesSchema, args.fetchOptions),
     fetchApprovedJson(tpex, tpexQuotesSchema, args.fetchOptions),

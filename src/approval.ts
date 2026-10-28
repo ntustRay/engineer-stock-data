@@ -54,6 +54,8 @@ export function assertPublicationReady(
   for (const market of ['TWSE', 'TPEX']) {
     if (!allowed('securities', market))
       throw new Error(`Missing approved securities universe for ${market}`);
+    if (!allowed('trading_calendar', market))
+      throw new Error(`Missing approved trading calendar for ${market}`);
   }
   const exceptions = publishedSchemas.exceptions.parse(
     JSON.parse(exceptionsText),

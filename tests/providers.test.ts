@@ -153,15 +153,33 @@ describe('market quote normalization', () => {
       registry,
       universe,
       exceptions: [],
+      calendars: (['TWSE', 'TPEX'] as const).map((market) => ({
+        market,
+        validFrom: '2026-01-01',
+        validUntil: '2026-12-31',
+        source: `test.${market}.trading_calendar`,
+        verifiedAt: '2026-01-01',
+        closedDates: [],
+        additionalTradingDates: [],
+      })),
       fetchOptions: { fetchImpl },
     };
     const result = await collectQuoteSnapshot(args);
-    expect(result.stocks).toHaveLength(2);
-    expect(result.sources).toHaveLength(4);
+    expect(result?.stocks).toHaveLength(2);
+    expect(result?.sources).toHaveLength(6);
     const badFetch = async () =>
       new Response('[{}]', { headers: { 'content-type': 'application/json' } });
     await expect(
       collectQuoteSnapshot({ ...args, fetchOptions: { fetchImpl: badFetch } }),
     ).rejects.toThrow();
+    expect(
+      await collectQuoteSnapshot({
+        ...args,
+        calendars: args.calendars.map((calendar) => ({
+          ...calendar,
+          closedDates: ['2026-10-27'],
+        })),
+      }),
+    ).toBeNull();
   });
 });

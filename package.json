@@ -16,7 +16,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "bun test tests/normalize.test.ts tests/fetch.test.ts tests/snapshot.test.ts tests/providers.test.ts tests/merge.test.ts tests/low-frequency.test.ts tests/approval.test.ts tests/notify.test.ts",
+    "test": "bun test tests/normalize.test.ts tests/fetch.test.ts tests/snapshot.test.ts tests/providers.test.ts tests/merge.test.ts tests/low-frequency.test.ts tests/approval.test.ts tests/notify.test.ts tests/calendar.test.ts",
     "fixture": "bun src/cli.ts fixture",
     "schema": "bun src/schema-export.ts",
     "build": "bun src/cli.ts build",
