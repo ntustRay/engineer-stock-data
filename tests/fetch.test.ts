@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { z } from 'zod';
+import { z } from 'zod/v4';
 import { fetchApprovedJson } from '../src/fetch.js';
 import type { Source } from '../src/contracts.js';
 const source: Source = {
@@ -12,7 +12,7 @@ const source: Source = {
   license_name: 'test',
   license_url: 'https://example.com/license',
   redistribution_approved: true,
-  attribution: null,
+  attribution: 'Example source attribution',
   schema_fixture: 'test.json',
   last_verified_at: '2026-10-28',
 };

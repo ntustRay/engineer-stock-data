@@ -22,7 +22,7 @@ jobs:
         with:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
-      - run: bun test
+      - run: bun run test
       - name: Refuse publication until licensed providers and normalization are connected
         run: |
           echo 'Production ingestion is not configured. No snapshot will be published.'

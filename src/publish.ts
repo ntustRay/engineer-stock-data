@@ -2,6 +2,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
+import type { Source } from './contracts.js';
+import { assertPublicationReady } from './approval.js';
 
 const git = (
   cwd: string,
@@ -11,21 +13,19 @@ const git = (
 export function publishSnapshot(
   files: Map<string, string>,
   remote: string,
-  branch = 'data',
+  branch: string,
+  expectedSha: string,
+  registry: Source[],
 ): string {
   if (!/^[A-Za-z0-9._/-]+$/.test(branch) || branch.includes('..'))
     throw new Error('Invalid branch');
+  if (expectedSha !== '' && !/^[a-f0-9]{40}$/.test(expectedSha))
+    throw new Error('Expected snapshot SHA is required');
+  assertPublicationReady(files, registry);
   const dir = mkdtempSync(join(tmpdir(), 'stock-snapshot-'));
   try {
     git(dir, ['init', '-q']);
     git(dir, ['remote', 'add', 'origin', remote]);
-    const refs = git(dir, [
-      'ls-remote',
-      '--heads',
-      'origin',
-      `refs/heads/${branch}`,
-    ]);
-    const expected = refs ? refs.split(/\s+/)[0] : '';
     for (const [path, content] of files) {
       if (path.startsWith('/') || path.split('/').includes('..'))
         throw new Error('Invalid output path');
@@ -49,7 +49,7 @@ export function publishSnapshot(
     );
     git(dir, [
       'push',
-      `--force-with-lease=refs/heads/${branch}:${expected}`,
+      `--force-with-lease=refs/heads/${branch}:${expectedSha}`,
       'origin',
       `${commit}:refs/heads/${branch}`,
     ]);

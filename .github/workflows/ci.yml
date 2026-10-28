@@ -13,5 +13,6 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run check
       - run: bun run typecheck
-      - run: bun test
-      - run: bun run fixture
+      - run: bun run test
+      - run: bun run schema
+      - run: git diff --exit-code -- schemas/

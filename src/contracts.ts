@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v4';
 
 export const marketSchema = z.enum(['TWSE', 'TPEX']);
 export const symbolSchema = z.string().regex(/^[A-Za-z0-9]{2,12}$/);
@@ -33,6 +33,7 @@ export const dailySchema = z
     close: amount,
     volumeShares: amount,
     turnoverTwd: amount,
+    trades: z.number().int().nonnegative().nullable().optional(),
     change: amount.default(null),
     changePct: amount.default(null),
     institutionalNetShares: z.object({
@@ -40,6 +41,16 @@ export const dailySchema = z
       investmentTrust: amount,
       dealer: amount,
     }),
+    margin: z
+      .object({
+        asOfDate: dateSchema,
+        marginBalanceShares: amount,
+        marginChangeShares: amount,
+        shortBalanceShares: amount,
+        shortChangeShares: amount,
+      })
+      .nullable()
+      .optional(),
   })
   .superRefine((d, ctx) => {
     if (d.volumeShares !== null && d.volumeShares < 0)
@@ -62,18 +73,125 @@ export const latestSchema = z.object({
   revenueYoyPct: amount,
   roePct: amount,
 });
+export const provenanceSchema = z.object({
+  source: z.string().min(1),
+  asOfDate: dateSchema,
+  availableAt: z.string().datetime().nullable(),
+  sourceUnit: z.string().min(1),
+});
+const datasetMetadata = {
+  source: z.string().min(1).optional(),
+  asOfDate: dateSchema.optional(),
+  availableAt: z.string().datetime().nullable().optional(),
+  sourceUnit: z.string().optional(),
+};
+const financialFields = {
+  revenue: amount.optional(),
+  eps: amount.optional(),
+  grossMarginPct: amount.optional(),
+  operatingMarginPct: amount.optional(),
+  roePct: amount.optional(),
+  cashFlow: amount.optional(),
+  currency: z.literal('TWD').optional(),
+  accountingBasis: z.enum(['consolidated', 'individual']).optional(),
+  accountingStandard: z.string().optional(),
+};
+export const quarterlySchema = z
+  .object({
+    period: z.string().regex(/^\d{4}-Q[1-4]$/),
+    ...datasetMetadata,
+    ...financialFields,
+  })
+  .passthrough();
+export const annualSchema = z
+  .object({
+    period: z.string().regex(/^\d{4}$/),
+    ...datasetMetadata,
+    ...financialFields,
+  })
+  .passthrough();
+export const revenueSchema = z
+  .object({
+    period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    ...datasetMetadata,
+    revenue: amount.optional(),
+    momPct: amount.optional(),
+    yoyPct: amount.optional(),
+    cumulativeRevenue: amount.optional(),
+    cumulativeYoyPct: amount.optional(),
+  })
+  .passthrough();
+export const ownershipSchema = z
+  .object({
+    asOfDate: dateSchema,
+    levels: z.array(
+      z
+        .object({
+          level: z.string(),
+          holders: z.number().int().nonnegative().nullable(),
+          shares: z.number().int().nonnegative().nullable(),
+          percentage: z.number().min(0).max(100).nullable(),
+        })
+        .passthrough(),
+    ),
+    source: z.string().min(1).optional(),
+    availableAt: z.string().datetime().nullable().optional(),
+  })
+  .passthrough();
+export const dividendSchema = z
+  .object({
+    period: z.string().regex(/^\d{4}$/),
+    ...datasetMetadata,
+    cashDividend: amount.optional(),
+    stockDividend: amount.optional(),
+    exDividendDate: dateSchema.nullable().optional(),
+    exRightsDate: dateSchema.nullable().optional(),
+  })
+  .passthrough();
 export const stockInputSchema = z.object({
   security: securitySchema,
   daily: z.array(dailySchema),
   latest: latestSchema,
-  financials: z.array(z.unknown()).default([]),
-  revenues: z.array(z.unknown()).default([]),
-  ownership: z.array(z.unknown()).default([]),
+  latestProvenance: z.record(z.string(), provenanceSchema).default({}),
+  financials: z.array(quarterlySchema).default([]),
+  annualFinancials: z.array(annualSchema).default([]),
+  revenues: z.array(revenueSchema).default([]),
+  ownership: z.array(ownershipSchema).default([]),
+  dividends: z.array(dividendSchema).default([]),
 });
 export const inputSchema = z.object({
   snapshotId: z.string().datetime(),
   asOfDate: dateSchema,
   stocks: z.array(stockInputSchema).min(1),
+  marketExceptions: z
+    .array(
+      z.object({
+        securityId: z.string(),
+        asOfDate: dateSchema,
+        reason: z.enum(['suspended', 'no_trade']),
+        source: z.string().min(1),
+      }),
+    )
+    .default([]),
+  sources: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        name: z.string().min(1),
+        provider: z.string().min(1),
+        sourceUrl: z
+          .string()
+          .url()
+          .refine((url) => url.startsWith('https://')),
+        licenseUrl: z
+          .string()
+          .url()
+          .refine((url) => url.startsWith('https://')),
+        attribution: z.string().min(1),
+        lastVerifiedAt: dateSchema,
+      }),
+    )
+    .default([]),
 });
 export type SnapshotInput = z.infer<typeof inputSchema>;
 export type StockInput = z.infer<typeof stockInputSchema>;
@@ -86,6 +204,8 @@ export const sourceSchema = z.object({
   frequency: z.string(),
   license_name: z.string().nullable(),
   license_url: z.string().url().nullable(),
+  license_dataset_url: z.string().url().optional(),
+  license_verified_at: dateSchema.optional(),
   redistribution_approved: z.boolean(),
   attribution: z.string().nullable(),
   schema_fixture: z.string().nullable(),
