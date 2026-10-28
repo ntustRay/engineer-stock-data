@@ -20,6 +20,10 @@
             "type": "string",
             "pattern": "^\\d{4}$"
           },
+          "periodType": {
+            "type": "string",
+            "const": "annual"
+          },
           "source": {
             "type": "string",
             "minLength": 1
@@ -44,6 +48,56 @@
             "type": "string"
           },
           "revenue": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "grossProfit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operatingIncome": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "netIncome": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "totalAssets": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "totalLiabilities": {
             "anyOf": [
               {
                 "type": "number"
@@ -116,6 +170,17 @@
           },
           "accountingStandard": {
             "type": "string"
+          },
+          "fiscalYear": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "derivedFields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [

@@ -87,6 +87,11 @@ const datasetMetadata = {
 };
 const financialFields = {
   revenue: amount.optional(),
+  grossProfit: amount.optional(),
+  operatingIncome: amount.optional(),
+  netIncome: amount.optional(),
+  totalAssets: amount.optional(),
+  totalLiabilities: amount.optional(),
   eps: amount.optional(),
   grossMarginPct: amount.optional(),
   operatingMarginPct: amount.optional(),
@@ -95,21 +100,47 @@ const financialFields = {
   currency: z.literal('TWD').optional(),
   accountingBasis: z.enum(['consolidated', 'individual']).optional(),
   accountingStandard: z.string().optional(),
+  fiscalYear: z.number().int().optional(),
+  derivedFields: z.array(z.string()).optional(),
 };
 export const quarterlySchema = z
   .object({
     period: z.string().regex(/^\d{4}-Q[1-4]$/),
+    periodType: z.literal('quarter').optional(),
+    fiscalQuarter: z
+      .union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])
+      .optional(),
     ...datasetMetadata,
     ...financialFields,
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((record, ctx) => {
+    if (
+      record.fiscalYear !== undefined &&
+      String(record.fiscalYear) !== record.period.slice(0, 4)
+    )
+      ctx.addIssue({ code: 'custom', message: 'Quarter fiscal year mismatch' });
+    if (
+      record.fiscalQuarter !== undefined &&
+      String(record.fiscalQuarter) !== record.period.slice(-1)
+    )
+      ctx.addIssue({ code: 'custom', message: 'Fiscal quarter mismatch' });
+  });
 export const annualSchema = z
   .object({
     period: z.string().regex(/^\d{4}$/),
+    periodType: z.literal('annual').optional(),
     ...datasetMetadata,
     ...financialFields,
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((record, ctx) => {
+    if (
+      record.fiscalYear !== undefined &&
+      String(record.fiscalYear) !== record.period
+    )
+      ctx.addIssue({ code: 'custom', message: 'Annual fiscal year mismatch' });
+  });
 export const revenueSchema = z
   .object({
     period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
