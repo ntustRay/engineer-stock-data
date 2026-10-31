@@ -41,6 +41,7 @@ export function loadSnapshot(files: Map<string, string>): SnapshotInput {
     snapshotId: manifest.snapshotId,
     asOfDate: manifest.latestTradingDate,
     sources: manifest.sources,
+    freshDatasets: manifest.freshDatasets,
     marketExceptions: publishedSchemas.exceptions.parse(
       read('meta/market-exceptions.json'),
     ).data,

@@ -1,29 +1,64 @@
 name: Publish data
 on:
-  # Enable the 19:10 / 22:10 Asia/Taipei schedules after approved sources and ingestion are ready.
-  # schedule:
-  #   - cron: '10 11 * * 1-5'
-  #   - cron: '10 14 * * 1-5'
+  push:
+    branches: [main]
+    paths: ['src/**', 'config/**', '.github/workflows/publish-data.yml']
+  schedule:
+    - cron: '10 11 * * 1-5'
+    - cron: '10 14 * * 1-5'
   workflow_dispatch:
+    inputs:
+      targetDate:
+        description: 'Official trading date (YYYY-MM-DD); blank uses the latest verified trading day'
+        required: false
+        type: string
+      forceRefresh:
+        description: 'Publish even when normalized data has not changed'
+        default: false
+        type: boolean
 permissions:
   contents: read
 concurrency:
   group: stock-data-publish
   cancel-in-progress: false
 jobs:
-  publish:
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: write
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
-      - run: bun run test
-      - name: Refuse publication until licensed providers and normalization are connected
+      - run: bun run check
+      - run: bun run typecheck
+      - run: bun test tests
+  publish:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - name: Fetch, validate and atomically publish the official snapshot
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TARGET_DATE: ${{ inputs.targetDate }}
+          FORCE_REFRESH: ${{ inputs.forceRefresh }}
+          CACHE_WEBHOOK_URL: ${{ vars.CACHE_WEBHOOK_URL }}
+          CACHE_WEBHOOK_SECRET: ${{ secrets.CACHE_WEBHOOK_SECRET }}
         run: |
-          echo 'Production ingestion is not configured. No snapshot will be published.'
-          exit 1
+          args=()
+          if [ -n "$TARGET_DATE" ]; then args+=(--target-date "$TARGET_DATE"); fi
+          if [ "$FORCE_REFRESH" = true ]; then args+=(--force-refresh); fi
+          bun run publish "${args[@]}"

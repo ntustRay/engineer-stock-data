@@ -1,0 +1,28 @@
+[
+  {
+    "Date": "1151030",
+    "Code": "1101",
+    "Name": "台泥",
+    "TradeVolume": "41966086",
+    "TradeValue": "1180622016",
+    "OpeningPrice": "28.00",
+    "HighestPrice": "28.45",
+    "LowestPrice": "27.75",
+    "ClosingPrice": "28.35",
+    "Change": "0.1500",
+    "Transaction": "12958"
+  },
+  {
+    "Date": "1151030",
+    "Code": "1102",
+    "Name": "亞泥",
+    "TradeVolume": "4884772",
+    "TradeValue": "184876288",
+    "OpeningPrice": "37.80",
+    "HighestPrice": "38.05",
+    "LowestPrice": "37.50",
+    "ClosingPrice": "38.05",
+    "Change": "0.2500",
+    "Transaction": "2543"
+  }
+]

@@ -3,7 +3,7 @@ import { revenueSchema, symbolSchema } from '../contracts.js';
 import { parseNumber, toTwd } from '../normalize.js';
 
 const value = z.union([z.string(), z.number()]);
-const rowsSchema = z
+export const revenueRowsSchema = z
   .array(
     z.object({
       資料年月: value,
@@ -35,7 +35,7 @@ export function normalizeRevenue(
 ) {
   if (!source) throw new Error('Revenue source is required');
   const seen = new Set<string>();
-  return rowsSchema
+  return revenueRowsSchema
     .parse(input)
     .map((row) => {
       const symbol = symbolSchema.parse(row.公司代號.trim());
@@ -57,6 +57,11 @@ export function normalizeRevenue(
           cumulativeYoyPct: parseNumber(row['累計營業收入-前期比較增減(%)']),
           source,
           sourceUnit,
+          asOfDate: new Date(
+            Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5)), 0),
+          )
+            .toISOString()
+            .slice(0, 10),
           // The report date is not necessarily the original announcement time.
           availableAt: null,
         }),

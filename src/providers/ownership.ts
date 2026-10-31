@@ -3,7 +3,7 @@ import { ownershipSchema, symbolSchema } from '../contracts.js';
 import { parseDate, parseNumber, toShares } from '../normalize.js';
 
 const value = z.union([z.string(), z.number()]);
-const rowsSchema = z
+export const ownershipRowsSchema = z
   .array(
     z.object({
       資料日期: value,
@@ -27,7 +27,18 @@ export function normalizeOwnership(input: unknown, source: string) {
       levels: z.infer<typeof ownershipSchema>['levels'];
     }
   >();
-  for (const row of rowsSchema.parse(input)) {
+  const cleaned = z
+    .array(z.record(z.string(), z.unknown()))
+    .parse(input)
+    .map((row) =>
+      Object.fromEntries(
+        Object.entries(row).map(([key, value]) => [
+          key.replace(/^\uFEFF/, ''),
+          value,
+        ]),
+      ),
+    );
+  for (const row of ownershipRowsSchema.parse(cleaned)) {
     const symbol = symbolSchema.parse(row.證券代號.trim());
     const asOfDate = parseDate(String(row.資料日期));
     const level = String(row.持股分級).trim();

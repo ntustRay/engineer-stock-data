@@ -5,7 +5,7 @@ import { verifySnapshot } from './verify.js';
 
 // Sort object keys as well as records so source object property order cannot
 // change the bytes and hashes of an otherwise identical snapshot.
-const bytes = (value: unknown): string =>
+export const canonicalJson = (value: unknown): string =>
   JSON.stringify(value, (_key, v: unknown) => {
     if (!v || typeof v !== 'object' || Array.isArray(v)) return v;
     return Object.fromEntries(
@@ -89,8 +89,9 @@ export function createSnapshot(
       throw new Error(`Insufficient ${market} daily coverage`);
   }
   const result = new Map<string, string>();
-  const add = (path: string, value: unknown) => result.set(path, bytes(value));
-  const base = { schemaVersion: '1.0.0', snapshotId: input.snapshotId };
+  const add = (path: string, value: unknown) =>
+    result.set(path, canonicalJson(value));
+  const base = { schemaVersion: '1.1.0', snapshotId: input.snapshotId };
   const screener = stocks.map((s) => {
     const d = s.daily.at(-1);
     return {
@@ -127,12 +128,34 @@ export function createSnapshot(
       latest: s.latest,
       latestProvenance: s.latestProvenance,
       datasetStatus: {
-        daily: 'current',
-        financials: s.financials.length ? 'stale' : 'unavailable',
+        daily: s.daily.some(
+          (day) => day.date === latestDate && day.close !== null,
+        )
+          ? 'current'
+          : s.daily.length
+            ? 'stale'
+            : 'unavailable',
+        financials: s.financials.length
+          ? input.freshDatasets.includes(`${market.toLowerCase()}.financial`)
+            ? 'current'
+            : 'stale'
+          : 'unavailable',
         annual: s.annualFinancials.length ? 'stale' : 'unavailable',
-        revenue: s.revenues.length ? 'stale' : 'unavailable',
-        ownership: s.ownership.length ? 'stale' : 'unavailable',
-        dividends: s.dividends.length ? 'stale' : 'unavailable',
+        revenue: s.revenues.length
+          ? input.freshDatasets.includes(`${market.toLowerCase()}.revenue`)
+            ? 'current'
+            : 'stale'
+          : 'unavailable',
+        ownership: s.ownership.length
+          ? input.freshDatasets.includes('tdcc.distribution')
+            ? 'current'
+            : 'stale'
+          : 'unavailable',
+        dividends: s.dividends.length
+          ? input.freshDatasets.includes(`${market.toLowerCase()}.dividends`)
+            ? 'current'
+            : 'stale'
+          : 'unavailable',
       },
     });
     add(`fundamentals/quarterly/${market}/${symbol}.json`, {
@@ -194,8 +217,31 @@ export function createSnapshot(
     markets: ['TWSE', 'TPEX'],
     counts: { securities: stocks.length, tradingDates: dates.length },
     sources: [...input.sources].sort((a, b) => a.id.localeCompare(b.id)),
+    freshDatasets: [...input.freshDatasets].sort(),
     datasets: {
       daily_prices: { asOfDate: latestDate, status: 'current' },
+      daily_valuation: {
+        asOfDate: latestDate,
+        status: input.freshDatasets.some((id) => id.endsWith('.valuation'))
+          ? 'current'
+          : 'unavailable',
+      },
+      daily_institutional: {
+        asOfDate: input.freshDatasets.includes('tpex.institutional')
+          ? latestDate
+          : null,
+        status: input.freshDatasets.includes('tpex.institutional')
+          ? 'current'
+          : 'unavailable',
+      },
+      daily_margin: {
+        asOfDate: input.freshDatasets.includes('tpex.margin')
+          ? latestDate
+          : null,
+        status: input.freshDatasets.includes('tpex.margin')
+          ? 'current'
+          : 'unavailable',
+      },
       quarterly_financials: {
         asOfDate:
           stocks
@@ -207,7 +253,9 @@ export function createSnapshot(
             .sort()
             .at(-1) ?? null,
         status: stocks.some((s) => s.financials.length)
-          ? 'stale'
+          ? input.freshDatasets.some((id) => id.endsWith('.financial'))
+            ? 'current'
+            : 'stale'
           : 'unavailable',
       },
       annual_financials: {
@@ -232,7 +280,11 @@ export function createSnapshot(
             )
             .sort()
             .at(-1) ?? null,
-        status: stocks.some((s) => s.revenues.length) ? 'stale' : 'unavailable',
+        status: stocks.some((s) => s.revenues.length)
+          ? input.freshDatasets.some((id) => id.endsWith('.revenue'))
+            ? 'current'
+            : 'stale'
+          : 'unavailable',
       },
       tdcc_distribution: {
         asOfDate:
@@ -241,7 +293,9 @@ export function createSnapshot(
             .sort()
             .at(-1) ?? null,
         status: stocks.some((s) => s.ownership.length)
-          ? 'stale'
+          ? input.freshDatasets.includes('tdcc.distribution')
+            ? 'current'
+            : 'stale'
           : 'unavailable',
       },
       dividends: {
@@ -255,7 +309,9 @@ export function createSnapshot(
             .sort()
             .at(-1) ?? null,
         status: stocks.some((s) => s.dividends.length)
-          ? 'stale'
+          ? input.freshDatasets.some((id) => id.endsWith('.dividends'))
+            ? 'current'
+            : 'stale'
           : 'unavailable',
       },
     },

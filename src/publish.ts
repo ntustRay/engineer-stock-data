@@ -16,6 +16,7 @@ export function publishSnapshot(
   branch: string,
   expectedSha: string,
   registry: Source[],
+  gitEnv: NodeJS.ProcessEnv = process.env,
 ): string {
   if (!/^[A-Za-z0-9._/-]+$/.test(branch) || branch.includes('..'))
     throw new Error('Invalid branch');
@@ -24,8 +25,8 @@ export function publishSnapshot(
   assertPublicationReady(files, registry);
   const dir = mkdtempSync(join(tmpdir(), 'stock-snapshot-'));
   try {
-    git(dir, ['init', '-q']);
-    git(dir, ['remote', 'add', 'origin', remote]);
+    git(dir, ['init', '-q'], gitEnv);
+    git(dir, ['remote', 'add', 'origin', remote], gitEnv);
     for (const [path, content] of files) {
       if (path.startsWith('/') || path.split('/').includes('..'))
         throw new Error('Invalid output path');
@@ -33,10 +34,10 @@ export function publishSnapshot(
       mkdirSync(dirname(dest), { recursive: true });
       writeFileSync(dest, content);
     }
-    git(dir, ['add', '--all']);
-    const tree = git(dir, ['write-tree']);
+    git(dir, ['add', '--all'], gitEnv);
+    const tree = git(dir, ['write-tree'], gitEnv);
     const authorEnv = {
-      ...process.env,
+      ...gitEnv,
       GIT_AUTHOR_NAME: 'Stock data pipeline',
       GIT_AUTHOR_EMAIL: 'stock-data@users.noreply.github.com',
       GIT_COMMITTER_NAME: 'Stock data pipeline',
@@ -47,12 +48,16 @@ export function publishSnapshot(
       ['commit-tree', tree, '-m', 'Publish stock data snapshot'],
       authorEnv,
     );
-    git(dir, [
-      'push',
-      `--force-with-lease=refs/heads/${branch}:${expectedSha}`,
-      'origin',
-      `${commit}:refs/heads/${branch}`,
-    ]);
+    git(
+      dir,
+      [
+        'push',
+        `--force-with-lease=refs/heads/${branch}:${expectedSha}`,
+        'origin',
+        `${commit}:refs/heads/${branch}`,
+      ],
+      gitEnv,
+    );
     return commit;
   } finally {
     rmSync(dir, { recursive: true, force: true });
