@@ -109,5 +109,12 @@ export function mergeSnapshots(
     incoming.sources,
     (source) => source.id,
   );
-  return inputSchema.parse({ ...incoming, stocks, sources });
+  return inputSchema.parse({
+    ...incoming,
+    stocks,
+    sources,
+    marketExceptions: [...incoming.marketExceptions].sort((a, b) =>
+      a.securityId.localeCompare(b.securityId),
+    ),
+  });
 }
