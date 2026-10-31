@@ -112,6 +112,18 @@ export const quarterlySchema = z
       .optional(),
     ...datasetMetadata,
     ...financialFields,
+    cumulative: z
+      .object({
+        flowBasis: z.literal('year_to_date'),
+        revenue: amount,
+        grossProfit: amount,
+        operatingIncome: amount,
+        netIncome: amount,
+        eps: amount,
+        grossMarginPct: amount,
+        operatingMarginPct: amount,
+      })
+      .optional(),
   })
   .passthrough()
   .superRefine((record, ctx) => {
@@ -223,11 +235,13 @@ export const inputSchema = z.object({
       }),
     )
     .default([]),
+  freshDatasets: z.array(z.string()).default([]),
 });
 export type SnapshotInput = z.infer<typeof inputSchema>;
 export type StockInput = z.infer<typeof stockInputSchema>;
 export const sourceSchema = z.object({
   id: z.string(),
+  name: z.string().min(1).optional(),
   provider: z.string(),
   url: z.string().url(),
   category: z.string(),

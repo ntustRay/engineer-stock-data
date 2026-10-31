@@ -73,6 +73,7 @@ export const manifestPublishedSchema = z.object({
     tradingDates: z.number().int().nonnegative(),
   }),
   sources: inputSchema.shape.sources,
+  freshDatasets: z.array(z.string()).default([]),
   datasets: z.record(
     z.string(),
     z.object({ asOfDate: dateSchema.nullable(), status: datasetStatus }),

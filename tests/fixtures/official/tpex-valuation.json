@@ -1,0 +1,20 @@
+[
+  {
+    "Date": "1151030",
+    "SecuritiesCompanyCode": "1240",
+    "CompanyName": "茂生農經",
+    "PriceEarningRatio": "9.98",
+    "DividendPerShare": "0.50000000",
+    "YieldRatio": "0.93",
+    "PriceBookRatio": "1.58"
+  },
+  {
+    "Date": "1151030",
+    "SecuritiesCompanyCode": "1259",
+    "CompanyName": "安心",
+    "PriceEarningRatio": "18.25",
+    "DividendPerShare": "1.20000000",
+    "YieldRatio": "1.86",
+    "PriceBookRatio": "0.75"
+  }
+]

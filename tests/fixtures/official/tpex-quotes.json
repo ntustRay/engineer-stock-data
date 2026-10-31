@@ -1,0 +1,42 @@
+[
+  {
+    "Date": "1151030",
+    "SecuritiesCompanyCode": "1240",
+    "CompanyName": "茂生農經",
+    "Close": "53.70",
+    "Change": "-0.30 ",
+    "Open": "54.00",
+    "High": "54.00",
+    "Low": "53.30",
+    "Average": "53.68",
+    "TradingShares": "7872",
+    "TransactionAmount": "422567",
+    "TransactionNumber": "28",
+    "LatestBidPrice": "53.70",
+    "LatesAskPrice": "54.50",
+    "Capitals": "46443992",
+    "NextReferencePrice": "53.70",
+    "NextLimitUp": "59.00",
+    "NextLimitDown": "48.35"
+  },
+  {
+    "Date": "1151030",
+    "SecuritiesCompanyCode": "1259",
+    "CompanyName": "安心",
+    "Close": "64.60",
+    "Change": "0.00 ",
+    "Open": "64.40",
+    "High": "64.60",
+    "Low": "64.40",
+    "Average": "64.56",
+    "TradingShares": "7200",
+    "TransactionAmount": "464834",
+    "TransactionNumber": "11",
+    "LatestBidPrice": "64.10",
+    "LatesAskPrice": "64.50",
+    "Capitals": "32389500",
+    "NextReferencePrice": "64.60",
+    "NextLimitUp": "71.00",
+    "NextLimitDown": "58.20"
+  }
+]
