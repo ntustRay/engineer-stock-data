@@ -2,6 +2,8 @@ import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { inputSchema } from '../src/contracts.js';
 import { mergeSnapshots } from '../src/merge.js';
+import { createSnapshot, canonicalJson } from '../src/snapshot.js';
+import { loadSnapshot } from '../src/load-snapshot.js';
 
 const input = () =>
   inputSchema.parse(
@@ -9,6 +11,27 @@ const input = () =>
   );
 
 describe('snapshot merge', () => {
+  it('preserves semantic equality after published exceptions are loaded in their canonical order', () => {
+    const next = input();
+    next.marketExceptions = next.stocks.map((stock) => ({
+      securityId: stock.security.securityId,
+      asOfDate: next.asOfDate,
+      reason: 'no_trade',
+      source: 'test.quotes',
+    }));
+    for (const stock of next.stocks) {
+      const day = stock.daily[0];
+      day.open = null;
+      day.high = null;
+      day.low = null;
+      day.close = null;
+      day.volumeShares = 0;
+    }
+    const first = mergeSnapshots(null, next);
+    const restored = loadSnapshot(createSnapshot(first, { fixture: true }));
+    const repeated = mergeSnapshots(restored, next);
+    expect(canonicalJson(repeated)).toBe(canonicalJson(restored));
+  });
   it('upserts corrections and retains separate low-frequency histories', () => {
     const prior = input();
     prior.asOfDate = '2026-10-26';
