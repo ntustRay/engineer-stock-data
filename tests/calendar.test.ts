@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   isJointTradingDay,
   isTradingDay,
+  previousJointTradingDay,
   taipeiDate,
   type MarketCalendar,
 } from '../src/calendar.js';
@@ -41,5 +42,16 @@ describe('verified trading calendar', () => {
   });
   it('uses Taipei date instead of the runner timezone', () => {
     expect(taipeiDate(new Date('2026-10-27T16:00:00.000Z'))).toBe('2026-10-28');
+  });
+  it('finds the prior joint session across weekends, holidays and exceptional sessions', () => {
+    const calendars: MarketCalendar[] = [
+      calendar,
+      { ...calendar, market: 'TPEX' },
+    ];
+    expect(previousJointTradingDay(calendars, '2026-02-17')).toBe('2026-02-13');
+    expect(previousJointTradingDay(calendars, '2026-02-23')).toBe('2026-02-21');
+    expect(() => previousJointTradingDay(calendars, '2026-01-01')).toThrow(
+      /does not cover/,
+    );
   });
 });

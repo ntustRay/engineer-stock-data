@@ -2,7 +2,11 @@ import { z } from 'zod/v4';
 import { inputSchema, type SnapshotInput, type Source } from './contracts.js';
 import { fetchApprovedJson, type FetchOptions } from './fetch.js';
 import { assembleQuoteSnapshot } from './assemble.js';
-import { isJointTradingDay, taipeiDate } from './calendar.js';
+import {
+  isJointTradingDay,
+  previousJointTradingDay,
+  taipeiDate,
+} from './calendar.js';
 import {
   normalizeQuotes,
   twseQuotesSchema,
@@ -93,16 +97,7 @@ export async function collectProduction(args: {
   const today = taipeiDate(now);
   if (args.targetDate && !isJointTradingDay(calendars, args.targetDate))
     return null;
-  let targetDate = args.targetDate ?? today;
-  if (!args.targetDate) {
-    for (let i = 0; !isJointTradingDay(calendars, targetDate); i++) {
-      if (i > 20) throw new Error('No recent verified trading day');
-      const day = new Date(`${targetDate}T00:00:00Z`);
-      day.setUTCDate(day.getUTCDate() - 1);
-      targetDate = day.toISOString().slice(0, 10);
-    }
-  }
-  if (targetDate > today)
+  if (args.targetDate && args.targetDate > today)
     throw new Error('Cannot request a future trading day');
   // Four concurrent requests at most. Quotes are filtered using an independent company master.
   const [twseMaster, tpexMaster, twseRaw, tpexRaw] = await Promise.all([
@@ -111,25 +106,73 @@ export async function collectProduction(args: {
     get('twse.daily_price', twseQuotesSchema),
     get('tpex.daily_price', tpexQuotesSchema),
   ]);
-  const universe = [
-    ...normalizeSecurities('TWSE', twseMaster, targetDate),
-    ...normalizeSecurities('TPEX', tpexMaster, targetDate),
+  const securitiesAt = (date: string) => [
+    ...normalizeSecurities('TWSE', twseMaster, date),
+    ...normalizeSecurities('TPEX', tpexMaster, date),
   ];
-  const ids = new Set(universe.map((item) => item.security.securityId));
-  const batches = [
+  const ids = new Set(
+    securitiesAt(today).map((item) => item.security.securityId),
+  );
+  const normalizeBatches = (listed: typeof twseRaw, otc: typeof tpexRaw) => [
     normalizeQuotes(
       'TWSE',
-      twseRaw.filter((row) => ids.has(`TWSE:${row.Code.trim()}`)),
+      listed.filter((row) => ids.has(`TWSE:${row.Code.trim()}`)),
     ),
     normalizeQuotes(
       'TPEX',
-      tpexRaw.filter((row) =>
-        ids.has(`TPEX:${row.SecuritiesCompanyCode.trim()}`),
-      ),
+      otc.filter((row) => ids.has(`TPEX:${row.SecuritiesCompanyCode.trim()}`)),
     ),
   ];
-  if (assertSameTradingDay(batches) !== targetDate)
+  let batches = normalizeBatches(twseRaw, tpexRaw);
+  // The exchanges can refresh at different times. Retry only date mismatches;
+  // malformed payloads still fail immediately and never reach publication.
+  const sleep =
+    args.fetchOptions?.sleep ??
+    ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+  for (
+    let attempt = 1;
+    batches[0].asOfDate !== batches[1].asOfDate && attempt <= 2;
+    attempt++
+  ) {
+    console.warn(
+      JSON.stringify({
+        stage: 'quote-readiness',
+        status: 'retry',
+        attempt,
+        dates: batches.map(({ market, asOfDate }) => ({ market, asOfDate })),
+      }),
+    );
+    await sleep(30000);
+    const raw = await Promise.all([
+      get('twse.daily_price', twseQuotesSchema),
+      get('tpex.daily_price', tpexQuotesSchema),
+    ]);
+    batches = normalizeBatches(...raw);
+  }
+  const quoteDate = assertSameTradingDay(batches);
+  const targetDate = args.targetDate ?? quoteDate;
+  if (targetDate > today)
+    throw new Error('Official quotes have a future trading date');
+  if (!isJointTradingDay(calendars, targetDate))
+    throw new Error(`Official quotes have a non-trading date: ${targetDate}`);
+  if (
+    !args.targetDate &&
+    targetDate < previousJointTradingDay(calendars, today)
+  )
+    throw new Error(`Official quotes are stale: ${targetDate}`);
+  if (quoteDate !== targetDate)
     throw new Error(`Official quotes are not ready for ${targetDate}`);
+  // Use the resolved quote date for listings too, so a delayed run cannot add
+  // a company that only started trading after the snapshot's date.
+  const universe = securitiesAt(targetDate);
+  console.log(
+    JSON.stringify({
+      stage: 'quote-date',
+      today,
+      targetDate,
+      mode: args.targetDate ? 'explicit' : 'latest-official',
+    }),
+  );
   const exceptions = batches.flatMap((batch) =>
     batch.quotes
       .filter((quote) => quote.daily.close === null)

@@ -25,6 +25,14 @@ const calendar = verifiedCalendarSchema.parse(
 const now = new Date('2026-10-31T12:00:00.000Z');
 const fixture = (path: string): unknown =>
   JSON.parse(readFileSync(path, 'utf8'));
+const withDate = (body: unknown, date: string) =>
+  z
+    .array(z.record(z.string(), z.unknown()))
+    .parse(body)
+    .map((row) => ({ ...row, Date: date }));
+const isQuoteUrl = (url: string) =>
+  url.endsWith('/STOCK_DAY_ALL') ||
+  url.endsWith('/tpex_mainboard_daily_close_quotes');
 function requests(
   override: (url: string, body: unknown) => unknown = (_url, body) => body,
 ) {
@@ -82,6 +90,134 @@ describe('official ingestion with fixed response fixtures', () => {
     expect(stock?.financials[0].cumulative?.revenue).toBe(71289957000);
     expect(stock?.ownership[0].levels.length).toBeGreaterThan(0);
     expect(stock?.latest.epsTtm).toBeNull();
+  });
+  it.each([
+    '2026-11-02T15:59:59.000Z',
+    '2026-11-02T16:00:00.000Z',
+    '2026-11-02T22:45:00.000Z',
+  ])(
+    'uses the official quote date when a run starts at %s',
+    async (startedAt) => {
+      const input = await collectProduction({
+        registry,
+        calendar,
+        previous: null,
+        now: new Date(startedAt),
+        fetchOptions: requests((url, body) =>
+          isQuoteUrl(url) ? withDate(body, '1151102') : body,
+        ),
+      });
+      expect(input?.asOfDate).toBe('2026-11-02');
+      expect(
+        input?.stocks.every((stock) => stock.daily[0].date === input.asOfDate),
+      ).toBe(true);
+      if (!input) throw new Error('Expected snapshot');
+      expect(() =>
+        assertPublicationReady(createSnapshot(input), registry),
+      ).not.toThrow();
+    },
+  );
+  it('uses the quote date to exclude a listing that starts on the following day', async () => {
+    const input = await collectProduction({
+      registry,
+      calendar,
+      previous: null,
+      now: new Date('2026-11-02T22:45:00.000Z'),
+      fetchOptions: requests((url, body) => {
+        if (isQuoteUrl(url)) return withDate(body, '1151102');
+        if (!url.endsWith('/t187ap03_L')) return body;
+        const rows = z.array(z.record(z.string(), z.unknown())).parse(body);
+        return [
+          ...rows,
+          { ...rows[0], 公司代號: '1103', 上市日期: '20261103' },
+        ];
+      }),
+    });
+    expect(input?.asOfDate).toBe('2026-11-02');
+    expect(input?.stocks).toHaveLength(4);
+  });
+  it('keeps an explicit target date strict instead of substituting older quotes', async () => {
+    await expect(
+      collectProduction({
+        registry,
+        calendar,
+        previous: null,
+        now: new Date('2026-11-02T22:45:00.000Z'),
+        targetDate: '2026-11-03',
+        fetchOptions: requests((url, body) =>
+          isQuoteUrl(url) ? withDate(body, '1151102') : body,
+        ),
+      }),
+    ).rejects.toThrow('Official quotes are not ready for 2026-11-03');
+  });
+  it('re-fetches both markets when their dates temporarily disagree', async () => {
+    let listedReads = 0;
+    let otcReads = 0;
+    const delays: number[] = [];
+    const input = await collectProduction({
+      registry,
+      calendar,
+      previous: null,
+      now,
+      fetchOptions: {
+        ...requests((url, body) => {
+          if (url.endsWith('/STOCK_DAY_ALL')) listedReads++;
+          if (url.endsWith('/tpex_mainboard_daily_close_quotes')) {
+            otcReads++;
+            if (otcReads === 1) return withDate(body, '1151029');
+          }
+          return body;
+        }),
+        sleep: async (ms) => {
+          delays.push(ms);
+        },
+      },
+    });
+    expect(input?.asOfDate).toBe('2026-10-30');
+    expect([listedReads, otcReads]).toEqual([2, 2]);
+    expect(delays).toEqual([30000]);
+  });
+  it('stops after bounded retries when quote dates still disagree', async () => {
+    let otcReads = 0;
+    const delays: number[] = [];
+    await expect(
+      collectProduction({
+        registry,
+        calendar,
+        previous: null,
+        now,
+        fetchOptions: {
+          ...requests((url, body) => {
+            if (!url.endsWith('/tpex_mainboard_daily_close_quotes'))
+              return body;
+            otcReads++;
+            return withDate(body, '1151029');
+          }),
+          sleep: async (ms) => {
+            delays.push(ms);
+          },
+        },
+      }),
+    ).rejects.toThrow(/quote dates do not match/);
+    expect(otcReads).toBe(3);
+    expect(delays).toEqual([30000, 30000]);
+  });
+  it.each([
+    ['1151029', /quotes are stale/],
+    ['1151102', /future trading date/],
+    ['1151031', /non-trading date/],
+  ])('rejects invalid automatic quote date %s', async (date, error) => {
+    await expect(
+      collectProduction({
+        registry,
+        calendar,
+        previous: null,
+        now,
+        fetchOptions: requests((url, body) =>
+          isQuoteUrl(url) ? withDate(body, date) : body,
+        ),
+      }),
+    ).rejects.toThrow(error);
   });
   it('fails a missing required quote schema and skips explicit non-trading dates', async () => {
     await expect(

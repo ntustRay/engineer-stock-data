@@ -67,6 +67,19 @@ export function isJointTradingDay(
   return listed;
 }
 
+export function previousJointTradingDay(
+  calendars: MarketCalendar[],
+  date: string,
+): string {
+  const day = new Date(`${dateSchema.parse(date)}T00:00:00Z`);
+  for (let i = 0; i < 31; i++) {
+    day.setUTCDate(day.getUTCDate() - 1);
+    const candidate = day.toISOString().slice(0, 10);
+    if (isJointTradingDay(calendars, candidate)) return candidate;
+  }
+  throw new Error('No recent verified trading day');
+}
+
 export function taipeiDate(now: Date): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Taipei',
