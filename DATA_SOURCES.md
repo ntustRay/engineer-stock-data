@@ -21,7 +21,7 @@
 | 上市公司股利分派情形 | `twse.dividends` | [來源](https://openapi.twse.com.tw/v1/opendata/t187ap45_L) | [授權資料集](https://data.gov.tw/dataset/31612) |
 
 - 名錄使用兩市場公司基本資料；排除產業代碼 91 的 TDR、未到上市日期的公司。ETF、ETN、權證不在普通股名錄。
-- 休市日依 TWSE 官方年表，2026 年已與[TPEx 年表](https://www.tpex.org.tw/storage/eb_data/11411/114007545811-1.pdf)核對。超出已核對年度或官方年表異動時停止發布。
+- TWSE OpenAPI 只提供最新一份年表，可能在年底前換成隔年資料。2026 年與 [TPEx 115 年表](https://www.tpex.org.tw/storage/eb_data/11411/114007545811-1.pdf)核對，2027 年與 [TPEx 116 年表](https://dsp.tpex.org.tw/storage/eb_data/11511/115008038711-1.pdf)核對；原始 TWSE 年表留在 `tests/fixtures/official/twse-calendar*.json`。來源仍提供的年度逐日核對，已被換下的年度採用原本經雙市場核對的休市日。超出核對範圍或仍在線的年表出現異動即停止發布。
 - 行情無收盤價標記只證明沒有一般交易收盤價，可能仍有零股成交；保留原成交股數並登錄 no_trade 來源證據。不把沒有回傳的股票當成停牌。
 - 行情量為股；上櫃融資券原單位為千股，轉為股。單位依 TPEx 收市資訊格式 S23 核對。月營收與損益表金額原單位為千元，轉為新台幣元。
 - 財報提供年初至當季累計值，放入 cumulative.flowBasis=year_to_date；缺前期與會計編制依據時，單季欄位為 null。EPS 不用累計值相減或冒充 TTM。

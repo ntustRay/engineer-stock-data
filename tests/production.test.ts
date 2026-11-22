@@ -4,7 +4,7 @@ import { parse } from 'yaml';
 import { z } from 'zod/v4';
 import { sourceSchema } from '../src/contracts.js';
 import { collectProduction } from '../src/production.js';
-import { verifiedCalendarSchema } from '../src/providers/exchange-calendar.js';
+import { verifiedCalendarsSchema } from '../src/providers/exchange-calendar.js';
 import { normalizeFinancials } from '../src/providers/financials.js';
 import { normalizeSecurities } from '../src/providers/securities.js';
 import { normalizeMargin } from '../src/providers/chips.js';
@@ -19,7 +19,7 @@ import { loadSnapshot } from '../src/load-snapshot.js';
 const registry = z
   .object({ sources: z.array(sourceSchema) })
   .parse(parse(readFileSync('config/sources.yml', 'utf8'))).sources;
-const calendar = verifiedCalendarSchema.parse(
+const calendar = verifiedCalendarsSchema.parse(
   JSON.parse(readFileSync('config/market-calendar.json', 'utf8')),
 );
 const now = new Date('2026-10-31T12:00:00.000Z');
@@ -117,6 +117,61 @@ describe('official ingestion with fixed response fixtures', () => {
       ).not.toThrow();
     },
   );
+  it.each([
+    ['2026-11-22T12:00:00.000Z', '1151120', '2026-11-20'],
+    ['2026-12-31T22:45:00.000Z', '1151231', '2026-12-31'],
+    ['2027-01-04T12:00:00.000Z', '1160104', '2027-01-04'],
+  ])(
+    'publishes approved quotes after the calendar feed rolls over at %s',
+    async (startedAt, quoteDate, expected) => {
+      const input = await collectProduction({
+        registry,
+        calendar,
+        previous: null,
+        now: new Date(startedAt),
+        fetchOptions: requests((url, body) => {
+          if (url.endsWith('/holidaySchedule'))
+            return fixture('tests/fixtures/official/twse-calendar-2027.json');
+          return isQuoteUrl(url) ? withDate(body, quoteDate) : body;
+        }),
+      });
+      expect(input?.asOfDate).toBe(expected);
+      if (!input) throw new Error('Expected snapshot');
+      expect(() =>
+        assertPublicationReady(createSnapshot(input), registry),
+      ).not.toThrow();
+    },
+  );
+  it('still rejects unreviewed dates and live holiday changes', async () => {
+    const input = {
+      registry,
+      calendar,
+      previous: null,
+      now: new Date('2027-01-04T12:00:00.000Z'),
+    };
+    const calendarFixture = fixture(
+      'tests/fixtures/official/twse-calendar-2027.json',
+    );
+    await expect(
+      collectProduction({
+        ...input,
+        calendar: calendar.filter(({ year }) => year === 2026),
+        targetDate: '2027-01-04',
+        fetchOptions: requests((url, body) =>
+          url.endsWith('/holidaySchedule') ? calendarFixture : body,
+        ),
+      }),
+    ).rejects.toThrow('Calendar does not cover 2027-01-04');
+    const changed = z.array(z.unknown()).parse(calendarFixture).slice(0, -1);
+    await expect(
+      collectProduction({
+        ...input,
+        fetchOptions: requests((url, body) =>
+          url.endsWith('/holidaySchedule') ? changed : body,
+        ),
+      }),
+    ).rejects.toThrow('Official holiday calendar changed for 2027');
+  });
   it('uses the quote date to exclude a listing that starts on the following day', async () => {
     const input = await collectProduction({
       registry,

@@ -55,14 +55,17 @@ export function isJointTradingDay(
   calendars: MarketCalendar[],
   date: string,
 ): boolean {
+  const day = dateSchema.parse(date);
+  const covering = calendars.filter(
+    (calendar) => calendar.validFrom <= day && day <= calendar.validUntil,
+  );
+  if (!covering.length) throw new Error(`Calendar does not cover ${day}`);
   if (
-    calendars.length !== 2 ||
-    new Set(calendars.map((calendar) => calendar.market)).size !== 2
+    covering.length !== 2 ||
+    new Set(covering.map((calendar) => calendar.market)).size !== 2
   )
     throw new Error('Both exchange calendars are required');
-  const [listed, otc] = calendars.map((calendar) =>
-    isTradingDay(calendar, date),
-  );
+  const [listed, otc] = covering.map((calendar) => isTradingDay(calendar, day));
   if (listed !== otc) throw new Error('Exchange calendars disagree');
   return listed;
 }

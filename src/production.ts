@@ -21,7 +21,7 @@ import {
 import {
   normalizeCalendars,
   exchangeCalendarSchema,
-  type verifiedCalendarSchema,
+  type verifiedCalendarsSchema,
 } from './providers/exchange-calendar.js';
 import {
   normalizeValuations,
@@ -63,7 +63,7 @@ const sourceMetadata = (source: Source) => {
 };
 export async function collectProduction(args: {
   registry: Source[];
-  calendar: z.infer<typeof verifiedCalendarSchema>;
+  calendar: z.infer<typeof verifiedCalendarsSchema>;
   previous: SnapshotInput | null;
   targetDate?: string;
   now?: Date;

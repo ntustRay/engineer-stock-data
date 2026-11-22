@@ -36,6 +36,8 @@ bun run verify
 
 累計損益明確存於 `cumulative`；單季前期、會計編制或公告時間未取得時不推算。EPS TTM、ROE、現金流與無合法資料來源的欄位保留 null。來源、授權與限制見 [DATA_SOURCES.md](DATA_SOURCES.md)，公開契約見 [SCHEMA.md](SCHEMA.md)。
 
-2026 年交易日曆已與 TPEx 年表核對；跨年度前須更新 `config/market-calendar.json`。不把公司從名錄消失直接當作下市，會停止發布並要求核實。
+`config/market-calendar.json` 保存經 TWSE 與 TPEx 年表核對的年度。TWSE OpenAPI 提早換年時，已核對的舊年度仍可使用。每年核對兩所的新年表後新增年度，保留前一年以供跨年查找上一個交易日。來源仍提供的年度若與設定不符，或交易日超出已核對範圍，發布會停止。
+
+公司從名錄消失時會停止發布並要求核實下市狀態。
 
 正式 JSON 不進 main；data 只保留一個可達 root commit。GitHub 可能暫存不可達 objects，不保證立即回收實體儲存。
