@@ -1,0 +1,64 @@
+name: Verify published stock website
+on:
+  push:
+    branches: [codex/check-stock-site-20261123]
+    paths: [.github/workflows/verify-published-website.yml]
+permissions: {}
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Check the public API for the verified 2026-11-20 snapshot
+        env:
+          EXPECTED_SNAPSHOT: "2026-11-23T02:21:52.226Z"
+        run: |
+          node --input-type=module <<'JS'
+          import { setTimeout as delay } from 'node:timers/promises';
+
+          const site = 'https://engineer-stock-web.vercel.app';
+          const expectedSnapshot = process.env.EXPECTED_SNAPSHOT;
+          const expectedDate = '2026-11-20';
+          const deadline = Date.now() + 16 * 60 * 1000;
+
+          async function request(path) {
+            const response = await fetch(site + path, {
+              redirect: 'error',
+              signal: AbortSignal.timeout(15000),
+            });
+            if (!response.ok) throw new Error(path + ' responded ' + response.status);
+            return response.json();
+          }
+
+          let verified = false;
+          while (Date.now() < deadline) {
+            try {
+              const manifest = await request('/api/v1/manifest');
+              const date = manifest.data?.latestTradingDate;
+              const meta = manifest.meta;
+              if (date !== expectedDate || meta?.asOfDate !== expectedDate ||
+                  meta?.snapshotId !== expectedSnapshot || meta?.source !== 'verified_snapshot' ||
+                  meta?.stale !== false || manifest.error !== null) {
+                throw new Error('Waiting for verified snapshot; current date: ' + date);
+              }
+              const stock = await request('/api/v1/stocks/TWSE/1589');
+              if (stock.meta?.snapshotId !== expectedSnapshot ||
+                  stock.data?.security?.securityId !== 'TWSE:1589' ||
+                  stock.data?.security?.status !== 'delisted') {
+                throw new Error('Waiting for the matching delisting record');
+              }
+              console.log(JSON.stringify({
+                latestTradingDate: date,
+                snapshotId: meta.snapshotId,
+                stale: meta.stale,
+                delistedSecurity: stock.data.security.securityId,
+              }));
+              verified = true;
+              break;
+            } catch (error) {
+              console.log(error instanceof Error ? error.message : String(error));
+              await delay(30000);
+            }
+          }
+          if (!verified) throw new Error('The verified snapshot did not reach the public API before the deadline');
+          JS
