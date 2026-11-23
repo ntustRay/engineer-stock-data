@@ -1,5 +1,6 @@
 import { z } from 'zod/v4';
 import type { MarketCalendar } from '../calendar.js';
+import { dateSchema } from '../contracts.js';
 import { parseDate } from '../normalize.js';
 
 export const exchangeCalendarSchema = z
@@ -11,40 +12,58 @@ export const exchangeCalendarSchema = z
     }),
   )
   .min(1);
-export const verifiedCalendarSchema = z.object({
-  year: z.number().int(),
-  verifiedAt: z.string(),
-  tpexReference: z.string().url(),
-  closedDates: z.array(z.string()),
-  additionalTradingDates: z.array(z.string()),
-});
+export const verifiedCalendarsSchema = z
+  .array(
+    z.object({
+      year: z.number().int().min(1912).max(9999),
+      verifiedAt: dateSchema,
+      tpexReference: z.string().url(),
+      closedDates: z.array(dateSchema),
+      additionalTradingDates: z.array(dateSchema),
+    }),
+  )
+  .min(1)
+  .refine(
+    (reviews) =>
+      new Set(reviews.map(({ year }) => year)).size === reviews.length,
+    'Duplicate reviewed calendar year',
+  );
+
 export function normalizeCalendars(
   raw: unknown,
-  config: z.infer<typeof verifiedCalendarSchema>,
+  reviews: z.infer<typeof verifiedCalendarsSchema>,
 ): MarketCalendar[] {
   const rows = exchangeCalendarSchema.parse(raw);
   const official = rows.map((row) => ({ ...row, date: parseDate(row.Date) }));
-  const year = String(config.year);
-  const current = official.filter((row) => row.date.startsWith(year));
-  if (!current.length)
-    throw new Error(
-      `Official calendar no longer covers ${year}; review next year's calendar`,
-    );
-  const closed = current
-    .filter((row) => !/開始交易日|最後交易日/.test(row.Name))
-    .map((row) => row.date)
-    .sort();
-  if (JSON.stringify(closed) !== JSON.stringify([...config.closedDates].sort()))
-    throw new Error(
-      'Official holiday calendar changed; both exchanges must be reviewed',
-    );
-  return (['TWSE', 'TPEX'] as const).map((market) => ({
-    market,
-    validFrom: `${year}-01-01`,
-    validUntil: `${year}-12-31`,
-    source: 'twse.calendar',
-    verifiedAt: config.verifiedAt,
-    closedDates: closed,
-    additionalTradingDates: config.additionalTradingDates,
-  }));
+  const newestOfficialYear = Math.max(
+    ...official.map(({ date }) => Number(date.slice(0, 4))),
+  );
+  return reviews
+    .filter(({ year }) => year <= newestOfficialYear)
+    .flatMap(({ year, verifiedAt, closedDates, additionalTradingDates }) => {
+      const current = official.filter((row) => row.date.startsWith(`${year}-`));
+      // Once TWSE publishes a later year, the replaced year keeps its reviewed dates.
+      if (current.length) {
+        const liveClosedDates = current
+          .filter((row) => !/開始交易日|最後交易日/.test(row.Name))
+          .map((row) => row.date)
+          .sort();
+        if (
+          JSON.stringify(liveClosedDates) !==
+          JSON.stringify([...closedDates].sort())
+        )
+          throw new Error(
+            `Official holiday calendar changed for ${year}; both exchanges must be reviewed`,
+          );
+      }
+      return (['TWSE', 'TPEX'] as const).map((market) => ({
+        market,
+        validFrom: `${year}-01-01`,
+        validUntil: `${year}-12-31`,
+        source: 'twse.calendar',
+        verifiedAt,
+        closedDates,
+        additionalTradingDates,
+      }));
+    });
 }

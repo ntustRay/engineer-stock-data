@@ -18,7 +18,7 @@ import { assertPublicationReady } from './approval.js';
 import { publishSnapshot } from './publish.js';
 import { notifyWebCache } from './notify.js';
 import { collectProduction } from './production.js';
-import { verifiedCalendarSchema } from './providers/exchange-calendar.js';
+import { verifiedCalendarsSchema } from './providers/exchange-calendar.js';
 import {
   gitEnvironment,
   loadRemoteSnapshot,
@@ -62,7 +62,7 @@ if (mode === 'verify') {
     .object({ sources: z.array(sourceSchema) })
     .parse(parse(readFileSync('config/sources.yml', 'utf8')));
   assertPublishableSources(config.sources);
-  const calendar = verifiedCalendarSchema.parse(
+  const calendar = verifiedCalendarsSchema.parse(
     JSON.parse(readFileSync('config/market-calendar.json', 'utf8')),
   );
   const repository =
