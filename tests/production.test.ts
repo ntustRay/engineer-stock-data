@@ -172,6 +172,62 @@ describe('official ingestion with fixed response fixtures', () => {
       }),
     ).rejects.toThrow('Official holiday calendar changed for 2027');
   });
+  it.each([
+    ['115/11/18', true],
+    ['115/11/23', false],
+    ['115/10/29', false],
+  ])(
+    'uses a delisting only when it took effect between snapshots: %s',
+    async (effectiveDate, shouldPublish) => {
+      const previous = await collectProduction({
+        registry,
+        calendar,
+        previous: null,
+        now,
+        fetchOptions: requests(),
+      });
+      if (!previous) throw new Error('Expected previous snapshot');
+      const collecting = collectProduction({
+        registry,
+        calendar,
+        previous,
+        now: new Date('2026-11-23T02:30:00.000Z'),
+        fetchOptions: requests((url, body) => {
+          if (isQuoteUrl(url)) return withDate(body, '1151120');
+          if (url.endsWith('/t187ap03_L'))
+            return z.array(z.unknown()).parse(body).slice(0, 1);
+          if (url.endsWith('/suspendListingCsvAndHtml'))
+            return [
+              { Code: '1102', DelistingDate: effectiveDate },
+              { Code: '1101', DelistingDate: '115/11/18' },
+            ];
+          return body;
+        }),
+      });
+      if (!shouldPublish) {
+        await expect(collecting).rejects.toThrow(
+          'Security disappeared without a delisting record: TWSE:1102',
+        );
+        return;
+      }
+      const result = await collecting;
+      if (!result) throw new Error('Expected next snapshot');
+      const delisted = result.stocks.find(
+        ({ security }) => security.securityId === 'TWSE:1102',
+      );
+      expect(delisted?.security.status).toBe('delisted');
+      expect(delisted?.daily.map(({ date }) => date)).toEqual(['2026-10-30']);
+      expect(
+        result.stocks.find(
+          ({ security }) => security.securityId === 'TWSE:1101',
+        )?.security.status,
+      ).toBe('active');
+      expect(result.sources.map(({ id }) => id)).toContain('twse.delistings');
+      expect(() =>
+        assertPublicationReady(createSnapshot(result), registry),
+      ).not.toThrow();
+    },
+  );
   it('uses the quote date to exclude a listing that starts on the following day', async () => {
     const input = await collectProduction({
       registry,

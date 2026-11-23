@@ -8,6 +8,7 @@
 | 上櫃股票行情 | `tpex.daily_price` | [來源](https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes) | [授權資料集](https://data.gov.tw/dataset/11370) |
 | 上市公司基本資料 | `twse.securities` | [來源](https://openapi.twse.com.tw/v1/opendata/t187ap03_L) | [授權資料集](https://data.gov.tw/dataset/18419) |
 | 上櫃公司基本資料 | `tpex.securities` | [來源](https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O) | [授權資料集](https://data.gov.tw/dataset/25036) |
+| 終止上市公司 | `twse.delistings` | [來源](https://openapi.twse.com.tw/v1/company/suspendListingCsvAndHtml) | [授權資料集](https://data.gov.tw/dataset/11543) |
 | 有價證券集中交易市場開（休）市日期 | `twse.calendar` | [來源](https://openapi.twse.com.tw/v1/holidaySchedule/holidaySchedule) | [授權資料集](https://data.gov.tw/dataset/11761) |
 | 上市個股本益比、殖利率及股價淨值比 | `twse.valuation` | [來源](https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL) | [授權資料集](https://data.gov.tw/dataset/11547) |
 | 上櫃股票個股本益比、殖利率、股價淨值比 | `tpex.valuation` | [來源](https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis) | [授權資料集](https://data.gov.tw/dataset/11373) |
@@ -21,6 +22,7 @@
 | 上市公司股利分派情形 | `twse.dividends` | [來源](https://openapi.twse.com.tw/v1/opendata/t187ap45_L) | [授權資料集](https://data.gov.tw/dataset/31612) |
 
 - 名錄使用兩市場公司基本資料；排除產業代碼 91 的 TDR、未到上市日期的公司。ETF、ETN、權證不在普通股名錄。
+- 上一期仍活躍、這期從 TWSE 名錄消失的公司，須有該區間內生效的官方終止上市紀錄才會標成下市。保留原有歷史，不將名錄缺漏視為下市。
 - TWSE OpenAPI 只提供最新一份年表，可能在年底前換成隔年資料。2026 年與 [TPEx 115 年表](https://www.tpex.org.tw/storage/eb_data/11411/114007545811-1.pdf)核對，2027 年與 [TPEx 116 年表](https://dsp.tpex.org.tw/storage/eb_data/11511/115008038711-1.pdf)核對；原始 TWSE 年表留在 `tests/fixtures/official/twse-calendar*.json`。來源仍提供的年度逐日核對，已被換下的年度採用原本經雙市場核對的休市日。超出核對範圍或仍在線的年表出現異動即停止發布。
 - 行情無收盤價標記只證明沒有一般交易收盤價，可能仍有零股成交；保留原成交股數並登錄 no_trade 來源證據。不把沒有回傳的股票當成停牌。
 - 行情量為股；上櫃融資券原單位為千股，轉為股。單位依 TPEx 收市資訊格式 S23 核對。月營收與損益表金額原單位為千元，轉為新台幣元。

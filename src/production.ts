@@ -1,6 +1,7 @@
 import { z } from 'zod/v4';
 import { inputSchema, type SnapshotInput, type Source } from './contracts.js';
 import { fetchApprovedJson, type FetchOptions } from './fetch.js';
+import { parseDate } from './normalize.js';
 import { assembleQuoteSnapshot } from './assemble.js';
 import {
   isJointTradingDay,
@@ -15,6 +16,7 @@ import {
 } from './providers/quotes.js';
 import {
   normalizeSecurities,
+  twseDelistingsSchema,
   twseSecuritiesSchema,
   tpexSecuritiesSchema,
 } from './providers/securities.js';
@@ -173,6 +175,41 @@ export async function collectProduction(args: {
       mode: args.targetDate ? 'explicit' : 'latest-official',
     }),
   );
+  const previous = args.previous;
+  const currentIds = new Set(
+    universe.map(({ security }) => security.securityId),
+  );
+  const missingListed = previous?.stocks.filter(
+    ({ security }) =>
+      security.market === 'TWSE' &&
+      security.status !== 'delisted' &&
+      !currentIds.has(security.securityId),
+  );
+  if (previous && missingListed?.length) {
+    const source = 'twse.delistings';
+    const rows = await get(source, twseDelistingsSchema);
+    for (const { security } of missingListed) {
+      const effectiveDates = new Set(
+        rows
+          .filter(({ Code }) => Code.trim() === security.symbol)
+          .map(({ DelistingDate }) => parseDate(DelistingDate))
+          .filter((date) => previous.asOfDate < date && date <= targetDate),
+      );
+      if (effectiveDates.size !== 1) continue;
+      universe.push({
+        security: { ...security, status: 'delisted' },
+        securityType: 'common_stock',
+        source,
+      });
+      console.log(
+        JSON.stringify({
+          stage: 'security-delisted',
+          securityId: security.securityId,
+          effectiveDate: [...effectiveDates][0],
+        }),
+      );
+    }
+  }
   const exceptions = batches.flatMap((batch) =>
     batch.quotes
       .filter((quote) => quote.daily.close === null)

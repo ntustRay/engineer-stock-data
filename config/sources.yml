@@ -44,6 +44,21 @@ sources:
   license_verified_at: '2026-10-31'
   last_verified_at: '2026-10-31'
   name: 上市公司基本資料
+- id: twse.delistings
+  provider: twse
+  url: https://openapi.twse.com.tw/v1/company/suspendListingCsvAndHtml
+  category: delistings
+  market: TWSE
+  frequency: irregular
+  license_name: 政府資料開放授權條款－第1版
+  license_url: https://data.gov.tw/license
+  license_dataset_url: https://data.gov.tw/dataset/11543
+  redistribution_approved: true
+  attribution: 金融監督管理委員會證券期貨局（臺灣證券交易所），2026，終止上市公司，政府資料開放授權條款－第1版
+  schema_fixture: tests/fixtures/official/twse-delistings.json
+  license_verified_at: '2026-11-23'
+  last_verified_at: '2026-11-23'
+  name: 終止上市公司
 - id: tpex.securities
   provider: tpex
   url: https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O
