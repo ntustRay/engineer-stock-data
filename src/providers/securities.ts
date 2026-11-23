@@ -25,6 +25,14 @@ export const tpexSecuritiesSchema = z
     }),
   )
   .min(1);
+export const twseDelistingsSchema = z
+  .array(
+    z.object({
+      DelistingDate: z.string(),
+      Code: z.string(),
+    }),
+  )
+  .min(1);
 const industries: Record<string, string> = {
   '01': '水泥工業',
   '02': '食品工業',
