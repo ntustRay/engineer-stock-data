@@ -7,6 +7,7 @@ import { collectProduction, QuoteReadinessError } from '../src/production.js';
 import { verifiedCalendarsSchema } from '../src/providers/exchange-calendar.js';
 import { normalizeFinancials } from '../src/providers/financials.js';
 import { normalizeSecurities } from '../src/providers/securities.js';
+import { normalizeQuotes } from '../src/providers/quotes.js';
 import { normalizeMargin } from '../src/providers/chips.js';
 import {
   normalizeDividends,
@@ -266,6 +267,77 @@ describe('official ingestion with fixed response fixtures', () => {
     });
     expect(input?.asOfDate).toBe('2026-11-02');
     expect(input?.stocks).toHaveLength(4);
+  });
+  it.each([
+    ['TWSE', 'ClosingPrice', null],
+    ['TWSE', 'TradeVolume', 'pending'],
+    ['TWSE', 'LowestPrice', '99999'],
+    ['TPEX', 'TradingShares', null],
+    ['TPEX', 'Close', '--'],
+    ['TPEX', 'High', '1'],
+    ['TWSE', 'Change', '--'],
+    ['TPEX', 'Change', '--'],
+  ] as const)(
+    'handles first-day %s field %s=%s through publication',
+    async (market, field, value) => {
+      const prefix = market.toLowerCase();
+      const getUrl = (kind: string) =>
+        registry.find((s) => s.id === `${prefix}.${kind}`)?.url;
+      const code = market === 'TWSE' ? 'Code' : 'SecuritiesCompanyCode';
+      const first = await collectDay('2026-11-02', null, (url, body) => {
+        if (url === getUrl('securities')) {
+          const rows = exchangeRows(body);
+          const symbolField = market === 'TWSE' ? '公司代號' : code;
+          const dateField = market === 'TWSE' ? '上市日期' : 'DateOfListing';
+          return [
+            ...rows,
+            { ...rows[0], [symbolField]: '5555', [dateField]: '20261102' },
+          ];
+        }
+        if (url === getUrl('daily_price')) {
+          const rows = exchangeRows(body);
+          return [{ ...rows[0], [code]: '5555', [field]: value }, ...rows];
+        }
+        return body;
+      });
+      const id = `${market}:5555`;
+      const stock = first.stocks.find((s) => s.security.securityId === id);
+      expect(stock?.daily.length).toBe(field === 'Change' ? 1 : 0);
+      expect(
+        first.marketExceptions.some((item) => item.securityId === id),
+      ).toBe(false);
+      expect(
+        first.stocks.filter(
+          (s) =>
+            s.security.securityId !== id && s.daily[0]?.date === first.asOfDate,
+        ),
+      ).toHaveLength(4);
+      expect(first.sources.some((s) => s.id === `${prefix}.daily_price`)).toBe(
+        true,
+      );
+    },
+  );
+  it('keeps date, duplicate and established-company validation strict when an IPO quote is malformed', () => {
+    const [first, second] = exchangeRows(
+      fixture('tests/fixtures/official/twse-quotes.json'),
+    );
+    const listingDates = new Map([
+      [`TWSE:${first.Code}`, '2026-10-30'],
+      [`TWSE:${second.Code}`, '2000-01-01'],
+    ]);
+    const bad = { ...first, ClosingPrice: null };
+    const parse = (...rows: unknown[]) =>
+      normalizeQuotes('TWSE', rows, listingDates);
+    expect(() => parse(bad)).toThrow(/No TWSE quote date/);
+    expect(() => parse(bad, first, second)).toThrow(/Duplicate/);
+    expect(() => parse(bad, { ...second, Date: '1151029' })).toThrow(
+      /Mixed dates/,
+    );
+    expect(() => parse({ ...bad, Date: 'bad' }, second)).toThrow(
+      /Invalid date/,
+    );
+    expect(() => parse(first, { ...second, ClosingPrice: null })).toThrow();
+    expect(() => parse({ ...bad, Date: '1151029' })).toThrow();
   });
   it('publishes a first-day listing without a quote and accepts its later first trade', async () => {
     const addMaster = (url: string, body: unknown) => {

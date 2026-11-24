@@ -36,6 +36,16 @@ const tpex = {
 };
 
 describe('market quote normalization', () => {
+  it('waits for a roster entry when an incomplete quote arrives before the listing', () => {
+    const roster = new Map([['TWSE:9001', '2025-01-02']]);
+    const batch = normalizeQuotes(
+      'TWSE',
+      [twse, { ...twse, Code: '9003', ClosingPrice: null }],
+      roster,
+    );
+    expect(batch.quotes.map((quote) => quote.symbol)).toEqual(['9001']);
+    expect(batch.asOfDate).toBe('2026-10-27');
+  });
   it('normalizes both markets without converting shares into lots', () => {
     const listed = normalizeQuotes('TWSE', [twse]);
     const otc = normalizeQuotes('TPEX', [tpex]);
