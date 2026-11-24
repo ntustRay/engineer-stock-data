@@ -10,8 +10,7 @@ import {
 } from './calendar.js';
 import {
   normalizeQuotes,
-  twseQuotesSchema,
-  tpexQuotesSchema,
+  quoteRowsSchema,
   assertSameTradingDay,
 } from './providers/quotes.js';
 import {
@@ -106,25 +105,22 @@ export async function collectProduction(args: {
   const [twseMaster, tpexMaster, twseRaw, tpexRaw] = await Promise.all([
     get('twse.securities', companyListSchema),
     get('tpex.securities', companyListSchema),
-    get('twse.daily_price', twseQuotesSchema),
-    get('tpex.daily_price', tpexQuotesSchema),
+    get('twse.daily_price', quoteRowsSchema),
+    get('tpex.daily_price', quoteRowsSchema),
   ]);
   const securitiesAt = (date: string) => [
     ...normalizeSecurities('TWSE', twseMaster, date),
     ...normalizeSecurities('TPEX', tpexMaster, date),
   ];
-  const ids = new Set(
-    securitiesAt(today).map((item) => item.security.securityId),
+  const listingDates = new Map(
+    securitiesAt(today).map(({ security, listing }) => [
+      security.securityId,
+      listing.listedAt,
+    ]),
   );
   const normalizeBatches = (listed: typeof twseRaw, otc: typeof tpexRaw) => [
-    normalizeQuotes(
-      'TWSE',
-      listed.filter((row) => ids.has(`TWSE:${row.Code.trim()}`)),
-    ),
-    normalizeQuotes(
-      'TPEX',
-      otc.filter((row) => ids.has(`TPEX:${row.SecuritiesCompanyCode.trim()}`)),
-    ),
+    normalizeQuotes('TWSE', listed, listingDates),
+    normalizeQuotes('TPEX', otc, listingDates),
   ];
   let batches = normalizeBatches(twseRaw, tpexRaw);
   // The exchanges can refresh at different times. Retry only date mismatches;
@@ -147,8 +143,8 @@ export async function collectProduction(args: {
     );
     await sleep(30000);
     const raw = await Promise.all([
-      get('twse.daily_price', twseQuotesSchema),
-      get('tpex.daily_price', tpexQuotesSchema),
+      get('twse.daily_price', quoteRowsSchema),
+      get('tpex.daily_price', quoteRowsSchema),
     ]);
     batches = normalizeBatches(...raw);
   }
