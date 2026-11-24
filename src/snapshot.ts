@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { inputSchema, type SnapshotInput, type Source } from './contracts.js';
 import { mergeSnapshots } from './merge.js';
 import { verifySnapshot } from './verify.js';
+import { requiresDailyQuote } from './listings.js';
 
 // Sort object keys as well as records so source object property order cannot
 // change the bytes and hashes of an otherwise identical snapshot.
@@ -73,7 +74,7 @@ export function createSnapshot(
   }
   for (const market of ['TWSE', 'TPEX'] as const) {
     const active = stocks.filter(
-      (s) => s.security.market === market && s.security.status === 'active',
+      (s) => s.security.market === market && requiresDailyQuote(s, latestDate),
     );
     const complete = active.filter(
       (s) =>
@@ -91,7 +92,7 @@ export function createSnapshot(
   const result = new Map<string, string>();
   const add = (path: string, value: unknown) =>
     result.set(path, canonicalJson(value));
-  const base = { schemaVersion: '1.1.0', snapshotId: input.snapshotId };
+  const base = { schemaVersion: '1.2.0', snapshotId: input.snapshotId };
   const screener = stocks.map((s) => {
     const d = s.daily.at(-1);
     return {
@@ -121,9 +122,14 @@ export function createSnapshot(
   add('index/screener.json', { ...base, data: screener });
   for (const s of stocks) {
     const { market, symbol } = s.security;
+    const refreshed = (dataset: string) =>
+      s.security.status !== 'delisted' &&
+      !s.listing?.missingAfter &&
+      input.freshDatasets.includes(dataset);
     add(`stocks/${market}/${symbol}.json`, {
       ...base,
       security: s.security,
+      ...(s.listing && { listing: s.listing }),
       daily: s.daily,
       latest: s.latest,
       latestProvenance: s.latestProvenance,
@@ -136,23 +142,23 @@ export function createSnapshot(
             ? 'stale'
             : 'unavailable',
         financials: s.financials.length
-          ? input.freshDatasets.includes(`${market.toLowerCase()}.financial`)
+          ? refreshed(`${market.toLowerCase()}.financial`)
             ? 'current'
             : 'stale'
           : 'unavailable',
         annual: s.annualFinancials.length ? 'stale' : 'unavailable',
         revenue: s.revenues.length
-          ? input.freshDatasets.includes(`${market.toLowerCase()}.revenue`)
+          ? refreshed(`${market.toLowerCase()}.revenue`)
             ? 'current'
             : 'stale'
           : 'unavailable',
         ownership: s.ownership.length
-          ? input.freshDatasets.includes('tdcc.distribution')
+          ? refreshed('tdcc.distribution')
             ? 'current'
             : 'stale'
           : 'unavailable',
         dividends: s.dividends.length
-          ? input.freshDatasets.includes(`${market.toLowerCase()}.dividends`)
+          ? refreshed(`${market.toLowerCase()}.dividends`)
             ? 'current'
             : 'stale'
           : 'unavailable',

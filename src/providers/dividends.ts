@@ -86,6 +86,7 @@ export function normalizeDividends(
   }
   return [...grouped.values()].map(({ symbol, period, declarations }) => ({
     symbol,
+    firstDecisionDate: declarations.map((row) => row.asOfDate).sort()[0],
     dividend: dividendSchema.parse({
       period,
       source,

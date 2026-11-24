@@ -191,8 +191,19 @@ export const dividendSchema = z
     exRightsDate: dateSchema.nullable().optional(),
   })
   .passthrough();
+export const listingObservationSchema = z.object({
+  issuerId: z
+    .string()
+    .regex(/^\d{8}$/)
+    .nullable(),
+  listedAt: dateSchema.nullable(),
+  // Date of the last confirmed roster before this listing went missing.
+  missingAfter: dateSchema.nullable(),
+  issuerChangedAt: dateSchema.optional(),
+});
 export const stockInputSchema = z.object({
   security: securitySchema,
+  listing: listingObservationSchema.optional(),
   daily: z.array(dailySchema),
   latest: latestSchema,
   latestProvenance: z.record(z.string(), provenanceSchema).default({}),

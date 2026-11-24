@@ -2,10 +2,13 @@ import { z } from 'zod/v4';
 import {
   dateSchema,
   inputSchema,
+  listingObservationSchema,
   securitySchema,
   type SnapshotInput,
+  type StockInput,
 } from './contracts.js';
 import { mergeSnapshots } from './merge.js';
+import { requiresDailyQuote } from './listings.js';
 import {
   assertSameTradingDay,
   type Quote,
@@ -16,6 +19,7 @@ const universeSchema = z
   .array(
     z.object({
       security: securitySchema,
+      listing: listingObservationSchema.optional(),
       securityType: z.literal('common_stock'),
       source: z.string().min(1),
     }),
@@ -42,6 +46,7 @@ export function assembleQuoteSnapshot(args: {
   batches: QuoteBatch[];
   exceptions: z.input<typeof exceptionSchema>;
   previous: SnapshotInput | null;
+  retained?: StockInput[];
 }): SnapshotInput {
   const targetDate = dateSchema.parse(args.targetDate);
   const universe = universeSchema.parse(args.universe);
@@ -87,8 +92,8 @@ export function assembleQuoteSnapshot(args: {
   );
   for (const market of ['TWSE', 'TPEX'] as const) {
     const active = universe.filter(
-      ({ security }) =>
-        security.market === market && security.status === 'active',
+      (item) =>
+        item.security.market === market && requiresDailyQuote(item, targetDate),
     );
     if (!active.length) throw new Error(`Missing ${market} security universe`);
     const incomplete = active.filter(({ security }) => {
@@ -103,11 +108,12 @@ export function assembleQuoteSnapshot(args: {
         `Insufficient ${market} daily coverage: ${incomplete.length}/${active.length}`,
       );
   }
-  const stocks = universe.map(({ security }) => {
+  const stocks = universe.map(({ security, listing }) => {
     const quote = quotes.get(security.securityId);
     const previous = former.get(security.securityId);
     return {
       security,
+      ...(listing && { listing }),
       daily: quote ? [quote.daily] : [],
       // Valuation provenance must be established by its own provider; never
       // carry an unlabelled prior value forward as though it were current.
@@ -132,7 +138,7 @@ export function assembleQuoteSnapshot(args: {
     inputSchema.parse({
       snapshotId: args.snapshotId,
       asOfDate: targetDate,
-      stocks,
+      stocks: [...stocks, ...(args.retained ?? [])],
       marketExceptions: exceptions,
     }),
   );

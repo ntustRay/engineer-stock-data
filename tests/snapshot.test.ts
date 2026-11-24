@@ -4,7 +4,7 @@ import { inputSchema } from '../src/contracts.js';
 import { createSnapshot, assertPublishableSources } from '../src/snapshot.js';
 import { verifySnapshot } from '../src/verify.js';
 import { loadSnapshot } from '../src/load-snapshot.js';
-import { manifestPublishedSchema } from '../src/published.js';
+import { manifestPublishedSchema, publishedSchemas } from '../src/published.js';
 const input = () =>
   inputSchema.parse(
     JSON.parse(readFileSync('tests/fixtures/snapshot.json', 'utf8')),
@@ -64,5 +64,28 @@ describe('snapshot', () => {
     v.stocks[0].daily.unshift({ ...v.stocks[0].daily[0], date: '2026-09-26' });
     const files = createSnapshot(v);
     expect(files.has('daily/2026/09/2026-09-26.json')).toBe(false);
+  });
+  it('keeps retained company data stale when its market refreshes', () => {
+    const source = input();
+    const retained = structuredClone(source.stocks[0]);
+    retained.security = {
+      ...retained.security,
+      symbol: '9003',
+      securityId: 'TWSE:9003',
+    };
+    retained.listing = {
+      issuerId: null,
+      listedAt: null,
+      missingAfter: '2026-10-26',
+    };
+    retained.daily[0].date = '2026-10-26';
+    retained.revenues = [{ period: '2026-09', revenue: 1234 }];
+    source.stocks.push(retained);
+    source.freshDatasets.push('twse.revenue');
+    const published = createSnapshot(source).get('stocks/TWSE/9003.json');
+    if (!published) throw new Error('Missing retained stock');
+    const stock = publishedSchemas.stock.parse(JSON.parse(published));
+    expect(stock.datasetStatus.daily).toBe('stale');
+    expect(stock.datasetStatus.revenue).toBe('stale');
   });
 });
