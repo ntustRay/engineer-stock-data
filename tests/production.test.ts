@@ -2,8 +2,8 @@ import { describe, it, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { parse } from 'yaml';
 import { z } from 'zod/v4';
-import { sourceSchema } from '../src/contracts.js';
-import { collectProduction } from '../src/production.js';
+import { sourceSchema, type SnapshotInput } from '../src/contracts.js';
+import { collectProduction, QuoteReadinessError } from '../src/production.js';
 import { verifiedCalendarsSchema } from '../src/providers/exchange-calendar.js';
 import { normalizeFinancials } from '../src/providers/financials.js';
 import { normalizeSecurities } from '../src/providers/securities.js';
@@ -49,6 +49,27 @@ function requests(
     },
     sleep: async () => {},
   };
+}
+const exchangeRows = (body: unknown) =>
+  z.array(z.record(z.string(), z.string())).parse(body);
+async function collectDay(
+  date: string,
+  previous: SnapshotInput | null,
+  override: (url: string, body: unknown) => unknown = (_url, body) => body,
+) {
+  const input = await collectProduction({
+    registry,
+    calendar,
+    previous,
+    now: new Date(`${date}T12:00:00.000Z`),
+    fetchOptions: requests((url, body) =>
+      override(url, isQuoteUrl(url) ? withDate(body, date) : body),
+    ),
+  });
+  if (!input) throw new Error('Expected trading-day snapshot');
+  const files = createSnapshot(input);
+  assertPublicationReady(files, registry);
+  return loadSnapshot(files);
 }
 describe('official ingestion with fixed response fixtures', () => {
   it('keeps absent dividend decision dates unknown instead of blocking every other company', () => {
@@ -178,7 +199,7 @@ describe('official ingestion with fixed response fixtures', () => {
     ['115/10/29', false],
   ])(
     'uses a delisting only when it took effect between snapshots: %s',
-    async (effectiveDate, shouldPublish) => {
+    async (effectiveDate, isDelisted) => {
       const previous = await collectProduction({
         registry,
         calendar,
@@ -204,18 +225,17 @@ describe('official ingestion with fixed response fixtures', () => {
           return body;
         }),
       });
-      if (!shouldPublish) {
-        await expect(collecting).rejects.toThrow(
-          'Security disappeared without a delisting record: TWSE:1102',
-        );
-        return;
-      }
       const result = await collecting;
       if (!result) throw new Error('Expected next snapshot');
       const delisted = result.stocks.find(
         ({ security }) => security.securityId === 'TWSE:1102',
       );
-      expect(delisted?.security.status).toBe('delisted');
+      expect(delisted?.security.status).toBe(
+        isDelisted ? 'delisted' : 'active',
+      );
+      expect(delisted?.listing?.missingAfter).toBe(
+        isDelisted ? null : previous.asOfDate,
+      );
       expect(delisted?.daily.map(({ date }) => date)).toEqual(['2026-10-30']);
       expect(
         result.stocks.find(
@@ -246,6 +266,309 @@ describe('official ingestion with fixed response fixtures', () => {
     });
     expect(input?.asOfDate).toBe('2026-11-02');
     expect(input?.stocks).toHaveLength(4);
+  });
+  it('publishes a first-day listing without a quote and accepts its later first trade', async () => {
+    const addMaster = (url: string, body: unknown) => {
+      if (!url.endsWith('/t187ap03_L')) return body;
+      const rows = exchangeRows(body);
+      return [...rows, { ...rows[0], 公司代號: '1103', 上市日期: '20261102' }];
+    };
+    const first = await collectDay('2026-11-02', null, addMaster);
+    const id = 'TWSE:1103';
+    expect(
+      first.stocks.find((s) => s.security.securityId === id)?.daily,
+    ).toEqual([]);
+    expect(first.marketExceptions.some((s) => s.securityId === id)).toBe(false);
+    const screener = JSON.parse(
+      createSnapshot(first).get('index/screener.json') ?? '{}',
+    );
+    expect(
+      screener.data.find((s: { securityId: string }) => s.securityId === id),
+    ).toMatchObject({ close: null, asOfDate: null });
+    const next = await collectDay('2026-11-03', first, (url, body) => {
+      if (!url.endsWith('/STOCK_DAY_ALL')) return addMaster(url, body);
+      const rows = exchangeRows(body);
+      return [...rows, { ...rows[0], Code: '1103' }];
+    });
+    expect(
+      next.stocks
+        .find((s) => s.security.securityId === id)
+        ?.daily.map((d) => d.date),
+    ).toEqual(['2026-11-03']);
+  });
+  it('keeps the last confirmed date across snapshots for late, missing or malformed delisting evidence', async () => {
+    const initial = await collectDay('2026-10-30', null);
+    // Simulate a snapshot written before the optional listing fields existed.
+    for (const stock of initial.stocks) delete stock.listing;
+    const without = (url: string, body: unknown) =>
+      url.endsWith('/t187ap03_L') ? exchangeRows(body).slice(0, 1) : body;
+    const pending = await collectDay('2026-11-02', initial, (url, body) =>
+      url.endsWith('/suspendListingCsvAndHtml') ? [] : without(url, body),
+    );
+    const retained = (s: SnapshotInput) =>
+      s.stocks.find((x) => x.security.securityId === 'TWSE:1102');
+    expect(retained(pending)?.listing?.missingAfter).toBe('2026-10-30');
+    const next = await collectDay('2026-11-03', pending, (url, body) =>
+      url.endsWith('/suspendListingCsvAndHtml')
+        ? [
+            { Code: '1102', Company: '前發行人', DelistingDate: '115/11/02' },
+            { Code: '1102', Company: '亞泥', DelistingDate: '?' },
+          ]
+        : without(url, body),
+    );
+    expect(retained(next)?.security.status).toBe('active');
+    const retired = await collectDay('2026-11-04', next, (url, body) =>
+      url.endsWith('/suspendListingCsvAndHtml')
+        ? [null, { Code: '1102', Company: '亞泥', DelistingDate: '115/11/02' }]
+        : without(url, body),
+    );
+    expect(retained(retired)?.security.status).toBe('delisted');
+    expect(retained(retired)?.daily).toEqual(retained(initial)?.daily);
+    const restored = await collectDay('2026-11-04', next);
+    expect(retained(restored)?.listing?.missingAfter).toBeNull();
+    expect(retained(restored)?.daily.map((d) => d.date)).toEqual([
+      '2026-10-30',
+      '2026-11-04',
+    ]);
+  });
+  it.each([
+    ['TWSE', 'TPEX', '1102', true],
+    ['TPEX', 'TWSE', '1259', true],
+    ['TPEX', 'TWSE', '1259', false],
+  ] as const)(
+    'reconciles %s to %s code %s with issuer match %s',
+    async (origin, target, symbol, sameIssuer) => {
+      const isMaster = (url: string, market: string) =>
+        url.endsWith(market === 'TWSE' ? '/t187ap03_L' : '/mopsfin_t187ap03_O');
+      const key = (market: string) =>
+        market === 'TWSE' ? '公司代號' : 'SecuritiesCompanyCode';
+      const identity = (market: string) =>
+        market === 'TWSE' ? '營利事業統一編號' : 'UnifiedBusinessNo.';
+      const initial = await collectDay('2026-10-30', null, (url, body) =>
+        isMaster(url, origin)
+          ? exchangeRows(body).map((row) => ({
+              ...row,
+              [identity(origin)]: '12345678',
+            }))
+          : body,
+      );
+      const next = await collectDay('2026-11-02', initial, (url, body) => {
+        if (isMaster(url, origin))
+          return exchangeRows(body).filter(
+            (row) => row[key(origin)] !== symbol,
+          );
+        if (isMaster(url, target)) {
+          const rows = exchangeRows(body);
+          return [
+            ...rows,
+            {
+              ...rows[0],
+              [key(target)]: symbol,
+              [target === 'TWSE' ? '上市日期' : 'DateOfListing']: '20261102',
+              [identity(target)]: sameIssuer ? '12345678' : '87654321',
+            },
+          ];
+        }
+        if (
+          url.endsWith(
+            target === 'TWSE'
+              ? '/STOCK_DAY_ALL'
+              : '/tpex_mainboard_daily_close_quotes',
+          )
+        ) {
+          const rows = exchangeRows(body);
+          return [
+            ...rows,
+            {
+              ...rows[0],
+              [target === 'TWSE' ? 'Code' : 'SecuritiesCompanyCode']: symbol,
+            },
+          ];
+        }
+        return body;
+      });
+      const previousListing = next.stocks.find(
+        (s) => s.security.securityId === `${origin}:${symbol}`,
+      );
+      expect(previousListing?.security.status).toBe(
+        sameIssuer ? 'delisted' : 'active',
+      );
+      expect(previousListing?.listing?.missingAfter).toBe(
+        sameIssuer ? null : initial.asOfDate,
+      );
+      expect(previousListing?.daily.map((d) => d.date)).toEqual([
+        initial.asOfDate,
+      ]);
+      expect(
+        next.stocks
+          .find((s) => s.security.securityId === `${target}:${symbol}`)
+          ?.daily.map((d) => d.date),
+      ).toEqual([next.asOfDate]);
+    },
+  );
+  it.each([true, false])(
+    'confirms an overlapping market transfer only if old-market trading stopped: %s',
+    async (stopped) => {
+      const source = (date: string) => (url: string, body: unknown) => {
+        const master = url.endsWith('/mopsfin_t187ap03_O');
+        if (master) {
+          return exchangeRows(body)
+            .filter(
+              (row) =>
+                !(
+                  date === '2026-11-03' && row.SecuritiesCompanyCode === '1259'
+                ),
+            )
+            .map((row) => ({ ...row, 'UnifiedBusinessNo.': '12345678' }));
+        }
+        if (date === '2026-10-30') return body;
+        if (url.endsWith('/t187ap03_L')) {
+          const rows = exchangeRows(body);
+          return [
+            ...rows,
+            {
+              ...rows[0],
+              公司代號: '1259',
+              上市日期: '20261102',
+              營利事業統一編號: '12345678',
+            },
+          ];
+        }
+        if (url.endsWith('/STOCK_DAY_ALL')) {
+          const rows = exchangeRows(body);
+          return [...rows, { ...rows[0], Code: '1259' }];
+        }
+        if (url.endsWith('/tpex_mainboard_daily_close_quotes') && stopped)
+          return exchangeRows(body).map((row) =>
+            row.SecuritiesCompanyCode === '1259'
+              ? { ...row, Close: '---', TradingShares: '0' }
+              : row,
+          );
+        return body;
+      };
+      const first = await collectDay('2026-10-30', null, source('2026-10-30'));
+      const overlap = await collectDay(
+        '2026-11-02',
+        first,
+        source('2026-11-02'),
+      );
+      const after = await collectDay(
+        '2026-11-03',
+        overlap,
+        source('2026-11-03'),
+      );
+      expect(
+        after.stocks.find((stock) => stock.security.securityId === 'TPEX:1259')
+          ?.security.status,
+      ).toBe(stopped ? 'delisted' : 'active');
+    },
+  );
+  it('isolates reassigned codes from old prices, financials, and valuation carry-forward', async () => {
+    const master =
+      (issuer: string, listedAt: string) => (url: string, body: unknown) =>
+        url.endsWith('/t187ap03_L')
+          ? exchangeRows(body).map((row) =>
+              row.公司代號 === '1101'
+                ? { ...row, 營利事業統一編號: issuer, 上市日期: listedAt }
+                : row,
+            )
+          : body;
+    const former = await collectDay(
+      '2026-10-30',
+      null,
+      master('12345678', '19620209'),
+    );
+    const find = (input: SnapshotInput) =>
+      input.stocks.find((s) => s.security.securityId === 'TWSE:1101');
+    expect(find(former)?.financials.length).toBeGreaterThan(0);
+    expect(find(former)?.latest.pbr).not.toBeNull();
+    const next = await collectDay(
+      '2026-11-02',
+      former,
+      master('87654321', '20261102'),
+    );
+    const again = await collectDay(
+      '2026-11-03',
+      next,
+      master('87654321', '20261102'),
+    );
+    for (const snapshot of [next, again]) {
+      const stock = find(snapshot);
+      expect(stock?.daily[0].date).toBe('2026-11-02');
+      expect(stock?.listing?.issuerChangedAt).toBe('2026-11-02');
+      expect(stock?.latest.pbr).toBeNull();
+      expect(stock?.financials).toEqual([]);
+      expect(stock?.revenues).toEqual([]);
+      expect(stock?.dividends).toEqual([]);
+      expect(stock?.ownership).toEqual([]);
+    }
+    const oldListing = find(former);
+    if (!oldListing) throw new Error('Expected original listing');
+    oldListing.security.status = 'delisted';
+    delete oldListing.listing;
+    const relisted = await collectDay(
+      '2026-11-02',
+      former,
+      master('87654321', '20261102'),
+    );
+    expect(find(relisted)?.daily.map((day) => day.date)).toEqual([
+      '2026-11-02',
+    ]);
+    expect(find(relisted)?.financials).toEqual([]);
+  });
+  it('quarantines one invalid official listing and accepts unavailable optional issuer IDs', async () => {
+    const initial = await collectDay('2026-10-30', null);
+    const next = await collectDay('2026-11-02', initial, (url, body) => {
+      if (!url.endsWith('/t187ap03_L')) return body;
+      return exchangeRows(body).map((row) =>
+        row.公司代號 === '1102'
+          ? { ...row, 上市日期: '未定' }
+          : { ...row, 營利事業統一編號: null },
+      );
+    });
+    expect(
+      next.stocks.find((s) => s.security.securityId === 'TWSE:1102')?.listing
+        ?.missingAfter,
+    ).toBe('2026-10-30');
+    expect(
+      next.stocks
+        .find((s) => s.security.securityId === 'TWSE:1101')
+        ?.daily.at(-1)?.date,
+    ).toBe('2026-11-02');
+    const restored = await collectDay('2026-11-03', next);
+    expect(
+      restored.stocks.find((s) => s.security.securityId === 'TWSE:1102')
+        ?.listing?.missingAfter,
+    ).toBeNull();
+    const rows = exchangeRows(
+      fixture('tests/fixtures/official/twse-securities.json'),
+    );
+    expect(() =>
+      normalizeSecurities(
+        'TWSE',
+        rows.map((row) => ({ ...row, 上市日期: '' })),
+        '2026-11-02',
+      ),
+    ).toThrow('Too many invalid TWSE company rows');
+  });
+  it('blocks a truncated roster even when earlier unresolved listings exist', async () => {
+    const previous = await collectDay('2026-10-30', null);
+    const sample = previous.stocks.find((s) => s.security.market === 'TPEX');
+    if (!sample) throw new Error('Expected TPEX fixture');
+    for (const symbol of ['8011', '8012', '8013'])
+      previous.stocks.push({
+        ...sample,
+        listing: sample.listing && { ...sample.listing },
+        security: { ...sample.security, symbol, securityId: `TPEX:${symbol}` },
+      });
+    await expect(collectDay('2026-11-02', previous)).rejects.toThrow(
+      'Unexpected TPEX roster loss',
+    );
+    for (const s of previous.stocks)
+      if (s.security.symbol.startsWith('80') && s.listing)
+        s.listing.missingAfter = '2026-10-29';
+    const result = await collectDay('2026-11-02', previous);
+    expect(result.stocks).toHaveLength(7);
   });
   it('keeps an explicit target date strict instead of substituting older quotes', async () => {
     await expect(
@@ -309,9 +632,26 @@ describe('official ingestion with fixed response fixtures', () => {
           },
         },
       }),
-    ).rejects.toThrow(/quote dates do not match/);
+    ).rejects.toBeInstanceOf(QuoteReadinessError);
     expect(otcReads).toBe(3);
     expect(delays).toEqual([30000, 30000]);
+  });
+  it('keeps future and non-adjacent market mismatches as hard failures', async () => {
+    for (const date of ['1151102', '1151027']) {
+      const result = collectProduction({
+        registry,
+        calendar,
+        previous: null,
+        now,
+        fetchOptions: requests((url, body) =>
+          url.endsWith('/tpex_mainboard_daily_close_quotes')
+            ? withDate(body, date)
+            : body,
+        ),
+      });
+      await expect(result).rejects.toThrow(/quote dates do not match/);
+      await expect(result).rejects.not.toBeInstanceOf(QuoteReadinessError);
+    }
   });
   it.each([
     ['1151029', /quotes are stale/],

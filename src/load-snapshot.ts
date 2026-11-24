@@ -21,6 +21,7 @@ export function loadSnapshot(files: Map<string, string>): SnapshotInput {
     const stock = publishedSchemas.stock.parse(read(`stocks/${id}`));
     return {
       security,
+      ...(stock.listing && { listing: stock.listing }),
       daily: stock.daily,
       latest: stock.latest,
       latestProvenance: stock.latestProvenance,

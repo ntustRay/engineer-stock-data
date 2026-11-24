@@ -1,7 +1,7 @@
 import { z } from 'zod/v4';
 import { inputSchema, type SnapshotInput, type Source } from './contracts.js';
 import { fetchApprovedJson, type FetchOptions } from './fetch.js';
-import { parseDate } from './normalize.js';
+import { reconcileIssuers, retainMissingListings } from './listings.js';
 import { assembleQuoteSnapshot } from './assemble.js';
 import {
   isJointTradingDay,
@@ -17,8 +17,7 @@ import {
 import {
   normalizeSecurities,
   twseDelistingsSchema,
-  twseSecuritiesSchema,
-  tpexSecuritiesSchema,
+  companyListSchema,
 } from './providers/securities.js';
 import {
   normalizeCalendars,
@@ -63,6 +62,8 @@ const sourceMetadata = (source: Source) => {
     lastVerifiedAt: source.last_verified_at,
   };
 };
+export class QuoteReadinessError extends Error {}
+
 export async function collectProduction(args: {
   registry: Source[];
   calendar: z.infer<typeof verifiedCalendarsSchema>;
@@ -103,8 +104,8 @@ export async function collectProduction(args: {
     throw new Error('Cannot request a future trading day');
   // Four concurrent requests at most. Quotes are filtered using an independent company master.
   const [twseMaster, tpexMaster, twseRaw, tpexRaw] = await Promise.all([
-    get('twse.securities', twseSecuritiesSchema),
-    get('tpex.securities', tpexSecuritiesSchema),
+    get('twse.securities', companyListSchema),
+    get('tpex.securities', companyListSchema),
     get('twse.daily_price', twseQuotesSchema),
     get('tpex.daily_price', tpexQuotesSchema),
   ]);
@@ -151,6 +152,19 @@ export async function collectProduction(args: {
     ]);
     batches = normalizeBatches(...raw);
   }
+  if (batches[0].asOfDate !== batches[1].asOfDate) {
+    const [earlier, later] = batches.map((batch) => batch.asOfDate).sort();
+    if (
+      later <= today &&
+      later >= previousJointTradingDay(calendars, today) &&
+      isJointTradingDay(calendars, later) &&
+      earlier === previousJointTradingDay(calendars, later)
+    ) {
+      throw new QuoteReadinessError(
+        `TWSE and TPEx quote dates do not match: ${batches.map((b) => `${b.market}=${b.asOfDate}`).join(', ')}`,
+      );
+    }
+  }
   const quoteDate = assertSameTradingDay(batches);
   const targetDate = args.targetDate ?? quoteDate;
   if (targetDate > today)
@@ -162,8 +176,12 @@ export async function collectProduction(args: {
     targetDate < previousJointTradingDay(calendars, today)
   )
     throw new Error(`Official quotes are stale: ${targetDate}`);
-  if (quoteDate !== targetDate)
-    throw new Error(`Official quotes are not ready for ${targetDate}`);
+  if (quoteDate !== targetDate) {
+    const message = `Official quotes are not ready for ${targetDate}; both exchanges report ${quoteDate}`;
+    if (quoteDate === previousJointTradingDay(calendars, targetDate))
+      throw new QuoteReadinessError(message);
+    throw new Error(message);
+  }
   // Use the resolved quote date for listings too, so a delayed run cannot add
   // a company that only started trading after the snapshot's date.
   const universe = securitiesAt(targetDate);
@@ -175,44 +193,37 @@ export async function collectProduction(args: {
       mode: args.targetDate ? 'explicit' : 'latest-official',
     }),
   );
-  const previous = args.previous;
   const currentIds = new Set(
     universe.map(({ security }) => security.securityId),
   );
-  const missingListed = previous?.stocks.filter(
-    ({ security }) =>
-      security.market === 'TWSE' &&
-      security.status !== 'delisted' &&
-      !currentIds.has(security.securityId),
+  const { previous: compatiblePrevious, issuerChanges } = reconcileIssuers(
+    args.previous,
+    universe,
+    targetDate,
   );
-  if (previous && missingListed?.length) {
-    const source = 'twse.delistings';
-    const rows = await get(source, twseDelistingsSchema);
-    for (const { security } of missingListed) {
-      const effectiveDates = new Set(
-        rows
-          .filter(({ Code }) => Code.trim() === security.symbol)
-          .map(({ DelistingDate }) => parseDate(DelistingDate))
-          .filter((date) => previous.asOfDate < date && date <= targetDate),
-      );
-      if (effectiveDates.size !== 1) continue;
-      universe.push({
-        security: { ...security, status: 'delisted' },
-        securityType: 'common_stock',
-        source,
-      });
-      console.log(
-        JSON.stringify({
-          stage: 'security-delisted',
-          securityId: security.securityId,
-          effectiveDate: [...effectiveDates][0],
-        }),
-      );
-    }
-  }
+  const quotedIds = new Set(
+    batches.flatMap(({ market, quotes }) =>
+      quotes
+        .filter(
+          ({ daily }) => daily.close !== null && daily.volumeShares !== null,
+        )
+        .map(({ symbol }) => `${market}:${symbol}`),
+    ),
+  );
+  const retained = await retainMissingListings(
+    args.previous,
+    universe,
+    targetDate,
+    quotedIds,
+    () => get('twse.delistings', twseDelistingsSchema),
+  );
   const exceptions = batches.flatMap((batch) =>
     batch.quotes
-      .filter((quote) => quote.daily.close === null)
+      .filter(
+        (quote) =>
+          quote.daily.close === null &&
+          currentIds.has(`${batch.market}:${quote.symbol}`),
+      )
       .map((quote) => ({
         securityId: `${batch.market}:${quote.symbol}`,
         asOfDate: targetDate,
@@ -230,12 +241,23 @@ export async function collectProduction(args: {
     targetDate,
     universe,
     exceptions,
-    previous: args.previous,
+    previous: compatiblePrevious,
+    retained,
     batches,
   });
   const stocks = new Map(
-    input.stocks.map((stock) => [stock.security.securityId, stock]),
+    input.stocks
+      .filter(({ security }) => currentIds.has(security.securityId))
+      .map((stock) => [stock.security.securityId, stock]),
   );
+  for (const [id, date] of issuerChanges) {
+    const listing = stocks.get(id)?.listing;
+    if (listing) listing.issuerChangedAt = date;
+  }
+  function stockAt(id: string, date: string | undefined) {
+    const start = issuerChanges.get(id);
+    return start && (!date || date < start) ? undefined : stocks.get(id);
+  }
   const freshDatasets: string[] = [];
   const optional: Array<() => Promise<void>> = [];
   for (const market of ['TWSE', 'TPEX'] as const) {
@@ -271,7 +293,7 @@ export async function collectProduction(args: {
         'thousand_TWD',
       );
       for (const { symbol, revenue } of rows) {
-        const stock = stocks.get(`${market}:${symbol}`);
+        const stock = stockAt(`${market}:${symbol}`, revenue.asOfDate);
         if (!stock || !revenue.asOfDate || revenue.asOfDate > targetDate)
           continue;
         stock.revenues = [
@@ -303,7 +325,7 @@ export async function collectProduction(args: {
         previous,
       );
       for (const { symbol, financial } of rows) {
-        const stock = stocks.get(`${market}:${symbol}`);
+        const stock = stockAt(`${market}:${symbol}`, financial.asOfDate);
         if (!stock || !financial.asOfDate || financial.asOfDate > targetDate)
           continue;
         stock.financials = [
@@ -339,8 +361,8 @@ export async function collectProduction(args: {
       id,
       targetDate,
     );
-    for (const { symbol, dividend } of rows) {
-      const stock = stocks.get(`TWSE:${symbol}`);
+    for (const { symbol, dividend, firstDecisionDate } of rows) {
+      const stock = stockAt(`TWSE:${symbol}`, firstDecisionDate);
       if (stock)
         stock.dividends = [
           ...stock.dividends.filter((row) => row.period !== dividend.period),
@@ -381,7 +403,7 @@ export async function collectProduction(args: {
     for (const { symbol, ownership } of rows) {
       if (ownership.asOfDate > targetDate) continue;
       for (const market of ['TWSE', 'TPEX']) {
-        const stock = stocks.get(`${market}:${symbol}`);
+        const stock = stockAt(`${market}:${symbol}`, ownership.asOfDate);
         if (stock)
           stock.ownership = [
             ...stock.ownership.filter(
@@ -420,7 +442,7 @@ export async function collectProduction(args: {
     ...[...used.values()].map(sourceMetadata),
   ];
   for (const stock of stocks.values()) {
-    const previous = args.previous?.stocks.find(
+    const previous = compatiblePrevious?.stocks.find(
       (item) => item.security.securityId === stock.security.securityId,
     );
     if (!previous) continue;
@@ -444,11 +466,10 @@ export async function collectProduction(args: {
   }
   input = inputSchema.parse({
     ...input,
-    stocks: [...stocks.values()],
     sources: [
       ...new Map(sources.map((source) => [source.id, source])).values(),
     ],
     freshDatasets: freshDatasets.sort(),
   });
-  return mergeSnapshots(args.previous, input);
+  return mergeSnapshots(compatiblePrevious, input);
 }

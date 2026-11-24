@@ -8,7 +8,7 @@ import {
 import { dirname, join } from 'node:path';
 import { parse } from 'yaml';
 import { z } from 'zod/v4';
-import { inputSchema, sourceSchema } from './contracts.js';
+import { inputSchema, sourceSchema, type SnapshotInput } from './contracts.js';
 import {
   assertPublishableSources,
   createSnapshot,
@@ -17,7 +17,8 @@ import {
 import { assertPublicationReady } from './approval.js';
 import { publishSnapshot } from './publish.js';
 import { notifyWebCache } from './notify.js';
-import { collectProduction } from './production.js';
+import { collectProduction, QuoteReadinessError } from './production.js';
+import { planPublication } from './scheduled-publication.js';
 import { verifiedCalendarsSchema } from './providers/exchange-calendar.js';
 import {
   gitEnvironment,
@@ -78,15 +79,57 @@ if (mode === 'verify') {
   const targetDate = targetIndex >= 0 ? argv[targetIndex + 1] : undefined;
   if (targetIndex >= 0 && !targetDate)
     throw new Error('--target-date requires a date');
-  const input = await collectProduction({
-    registry: config.sources,
-    calendar,
-    previous: previous.input,
+  const plan = planPublication(
+    argv.includes('--force-refresh')
+      ? undefined
+      : process.env.AUTO_PUBLISH_WINDOW,
     targetDate,
-  });
+    new Date(),
+    previous.input?.asOfDate,
+  );
+  if (plan.alreadyPublished) {
+    console.log(
+      JSON.stringify({
+        stage: 'skip',
+        reason: 'session_already_published',
+        targetDate: plan.targetDate,
+        asOfDate: previous.input?.asOfDate,
+      }),
+    );
+    process.exit(0);
+  }
+  let input: SnapshotInput | null;
+  try {
+    input = await collectProduction({
+      registry: config.sources,
+      calendar,
+      previous: previous.input,
+      targetDate: plan.targetDate,
+    });
+  } catch (error) {
+    if (!plan.deferPending || !(error instanceof QuoteReadinessError))
+      throw error;
+    const status = {
+      stage: 'deferred',
+      reason: error.message,
+      targetDate: plan.targetDate,
+      lastPublished: previous.input?.asOfDate ?? null,
+    };
+    console.warn(JSON.stringify(status));
+    if (process.env.GITHUB_STEP_SUMMARY)
+      appendFileSync(
+        process.env.GITHUB_STEP_SUMMARY,
+        `\nWaiting for official quotes. The next scheduled attempt will retry.\n\n\`\`\`json\n${JSON.stringify(status, null, 2)}\n\`\`\`\n`,
+      );
+    process.exit(0);
+  }
   if (!input) {
     console.log(
-      JSON.stringify({ stage: 'skip', reason: 'non_trading_day', targetDate }),
+      JSON.stringify({
+        stage: 'skip',
+        reason: 'non_trading_day',
+        targetDate: plan.targetDate,
+      }),
     );
     process.exit(0);
   }

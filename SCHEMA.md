@@ -1,6 +1,6 @@
 # Snapshot v1
 
-`schemas/1.1.0/` 包含由 `src/published.ts` 產生的 JSON Schema。修改公開契約後執行 `bun run schema`，並依語意化版本處理相容性。JSON Schema 無法表達所有跨欄位和跨檔案規則；執行時仍必須通過 Zod、自然鍵、日期、覆蓋率、SHA-256 與快照一致性驗證。
+`schemas/1.2.0/` 包含由 `src/published.ts` 產生的 JSON Schema。修改公開契約後執行 `bun run schema`，並依語意化版本處理相容性。JSON Schema 無法表達所有跨欄位和跨檔案規則；執行時仍必須通過 Zod、自然鍵、日期、覆蓋率、SHA-256 與快照一致性驗證。
 
 `manifest.json` 提供快照識別、實際交易日、資料集狀態、來源／授權顯名及檔案 hash。`index/screener.json` 是選股投影；`stocks/{market}/{symbol}.json` 是近 30 個日曆天的個股 read model。市場與代號是複合識別，股票代號一律為字串。
 
@@ -9,3 +9,5 @@
 季度最多 12 季、年度最多 5 年、月營收保留最近 36 個完整月份、集保保留最近 52 筆週資料、股利最多 5 年。資料已提供但本次未完成來源刷新時標為 `stale`；缺資料為 `unavailable`。來源核准與官方 response fixtures 記錄在 config/sources.yml。
 
 1.1.0 新增財報 cumulative（year_to_date）及 manifest.freshDatasets。季度主欄位仍為單季；累計 EPS 不填入單季 EPS 或 EPS TTM。舊 1.0.0 Schema 保留供相容性檢查。
+
+1.2.0 的個股檔新增選填的 `listing`。其中 `issuerId` 是官方公司統編，`listedAt` 是該市場掛牌日。個股首次從名冊缺席時，`missingAfter` 記錄前一份快照日期，供後續批次核對晚到的終止上市公告。代號由另一家公司使用時，`issuerChangedAt` 標示新公司資料的起始邊界。行情的 `asOfDate` 表示實際報價日期。

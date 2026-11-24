@@ -5,6 +5,7 @@ import {
   dateSchema,
   dividendSchema,
   inputSchema,
+  listingObservationSchema,
   latestSchema,
   marketSchema,
   ownershipSchema,
@@ -23,6 +24,7 @@ const institution = dailySchema.shape.institutionalNetShares;
 export const stockPublishedSchema = z.object({
   ...base,
   security: securitySchema,
+  listing: listingObservationSchema.optional(),
   daily: z.array(dailySchema),
   latest: latestSchema,
   latestProvenance: z.record(z.string(), provenanceSchema),
